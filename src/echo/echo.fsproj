@@ -25,7 +25,7 @@
     <WarningLevel>3</WarningLevel>
     <PlatformTarget>x86</PlatformTarget>
     <DocumentationFile>bin\Debug\echo.XML</DocumentationFile>
-    <StartArguments>--tlsversion TLS_1p0 --sessionDB-dir sessionDB --server-name rsa.cert-01.mitls.org --client --extended-pad  --port 5556 --address 130.129.9.67</StartArguments>
+    <StartArguments>--address 127.0.0.1 --port 6000 --ciphers TLS_RSA_WITH_AES_128_CBC_SHA --tlsversion TLS_1p2 --sessionDB-dir sessionDB --server-name rsa.cert-01.mitls.org</StartArguments>
     <StartWorkingDirectory>
     </StartWorkingDirectory>
   </PropertyGroup>

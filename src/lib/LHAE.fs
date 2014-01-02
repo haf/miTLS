@@ -86,7 +86,7 @@ let encrypt' (e:id) key data rg plain =
         | Stream_RC4_128 -> // stream cipher
             let plain   = Encode.mac e ka data rg plain in
             let (l,h) = rg in
-            if (not e.extPad) && l <> h then
+            if l <> h then
                 unexpected "[encrypt'] given an invalid input range"
             else
                 let (ke,res) = ENC.ENC e ke data rg plain
@@ -105,7 +105,7 @@ let encrypt' (e:id) key data rg plain =
             (key,r)
     | (AEAD(encAlg,_), GCM(gcmState)) ->
         let (l,h) = rg in
-        if (not e.extPad) && l <> h then
+        if l <> h then
             unexpected "[encrypt'] given an invalid input range"
         else
             let (newState,res) = AEAD_GCM.ENC e gcmState data rg plain in
@@ -138,8 +138,7 @@ let decrypt' e key data cipher =
         | CBC_Stale(alg) | CBC_Fresh(alg) -> // block cipher
             let ivL = ivSize e in
             let blockSize = blockSize alg in
-            let fp = fixedPadSize e in
-            if (cl - ivL < macSize + fp) || (cl % blockSize <> 0) then
+            if (cl - ivL < macSize + 1) || (cl % blockSize <> 0) then
                 (*@ It is safe to return early, because we are branching
                     on public data known to the attacker *)
                 let reason = perror __SOURCE_FILE__ __LINE__ "" in Error(AD_bad_record_mac, reason)

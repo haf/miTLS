@@ -48,22 +48,10 @@ let alertHistory (e:epoch) h = h.alert
 
 let fragment i ct rg b =
     match ct with
-    | Handshake          ->
-        match HSFragment.fragmentPlain i rg b with
-        | Error(x,y) -> Error(x,y)
-        | Correct(res) -> correct (FHandshake(res))
-    | Change_cipher_spec ->
-        match HSFragment.fragmentPlain i rg b with
-        | Error(x,y) -> Error(x,y)
-        | Correct(res) -> correct (FCCS(res))
-    | Alert              ->
-        match HSFragment.fragmentPlain i rg b with
-        | Error(x,y) -> Error(x,y)
-        | Correct(res) -> correct (FAlert(res))
-    | Application_data   ->
-        match AppFragment.plain i rg b with
-        | Error(x,y) -> Error(x,y)
-        | Correct(res) -> correct (FAppData(res))
+    | Handshake          -> FHandshake(HSFragment.fragmentPlain i rg b)
+    | Change_cipher_spec -> FCCS(HSFragment.fragmentPlain i rg b)
+    | Alert              -> FAlert(HSFragment.fragmentPlain i rg b)
+    | Application_data   -> FAppData(AppFragment.plain i rg b)
 
 let plain e (ct:ContentType) (h:history) (rg:range) b =
       let i = id e in

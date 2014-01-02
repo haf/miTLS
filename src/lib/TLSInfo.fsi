@@ -32,6 +32,15 @@ type crand = random
 type srand = random
 type csrands = bytes
 
+type cVerifyData = bytes (* ClientFinished payload *)
+type sVerifyData = bytes (* ServerFinished payload *)
+
+// Defined here to not depend on TLSExtension
+type negotiatedExtension =
+    | NE_VoidExtension
+
+type negotiatedExtensions = negotiatedExtension list
+
 type pmsId
 val pmsId: PMS.pms -> pmsId
 val noPmsId: pmsId
@@ -52,6 +61,7 @@ type SessionInfo = {
     protocol_version: ProtocolVersion;
     cipher_suite: cipherSuite;
     compression: Compression;
+    extensions: negotiatedExtensions;
     pmsId: pmsId;
     pmsData: pmsData;
     client_auth: bool;
@@ -76,8 +86,7 @@ type id = {
   pv: ProtocolVersion; //Should be part of aeAlg
   aeAlg  : aeAlg;  // the authenticated-encryption algorithms
   csrConn: csrands;
-  writer : Role;
-  extPad : bool;
+  writer : Role
   }
 
 val macAlg_of_id: id -> macAlg
@@ -102,11 +111,12 @@ val epochCRand: epoch -> crand
 val epochCSRands: epoch -> crand
 
 // Role is of the writer
-type ConnectionInfo =
+type preConnectionInfo =
     { role: Role;
       id_rand: random;
       id_in:  epoch;
       id_out: epoch}
+type ConnectionInfo = preConnectionInfo
 val connectionRole: ConnectionInfo -> Role
 
 val initConnection: Role -> bytes -> ConnectionInfo
@@ -138,7 +148,6 @@ type config = {
 
     (* Common *)
     safe_renegotiation: bool
-    extended_padding: bool
     server_name: Cert.hint
     client_name: Cert.hint
 

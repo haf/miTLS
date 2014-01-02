@@ -43,7 +43,6 @@ let tlsoptions sessionDBDir serverName clientName = {
     TLSInfo.request_client_certificate = match clientName with | None -> false | Some(_) -> true
 
     TLSInfo.safe_renegotiation = true
-    TLSInfo.extended_padding = false
 
     TLSInfo.server_name = serverName
     TLSInfo.client_name = match clientName with | None -> "" | Some(name) -> name

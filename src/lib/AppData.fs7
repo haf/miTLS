@@ -84,13 +84,14 @@ val clearOutBuf: ci:ConnectionInfo -> s:(;ci)app_state ->
 		}
 
 val recv_fragment: ci:ConnectionInfo -> s:(;ci)app_state -> r:range ->
-	f:(;Id(ci.id_in),r)AppFragment.fragment{Auth(ci.id_in) =>
+	f:(;Id(ci.id_in),r)AppFragment.fragment{AuthId(Id(ci.id_in)) =>
 		AppFragment.Sent(ci.id_in,AppInStream(ci,s),r,f)} ->
 	(d:(;ci.id_in,AppInStream(ci,s),r)delta *
 	 s':(;ci)app_state){
+		AppOutBuf(ci,s') = AppOutBuf(ci,s) /\
 		AppOutStream(ci,s') = AppOutStream(ci,s) /\
 		AppInStream(ci,s') = AppFragment.Extend(ci.id_in,AppInStream(ci,s),r,f) /\
-		AppFragment.FragOfDelta(ci.id_in,r,f,AppInStream(ci,s),d)
+                AppFragment.Payload(Id(ci.id_in),r,f) = DataStream.Payload(ci.id_in,AppInStream(ci,s),r,d)
 	 }
 
 val reset_outgoing: ci:ConnectionInfo -> s:(;ci)app_state ->

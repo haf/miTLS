@@ -33,6 +33,15 @@ type crand = random
 type srand = random
 type csrands = bytes
 
+type cVerifyData = bytes (* ClientFinished payload *)
+type sVerifyData = bytes (* ServerFinished payload *)
+
+// Defined here to not depend on TLSExtension
+type negotiatedExtension =
+    | NE_VoidExtension
+
+type negotiatedExtensions = negotiatedExtension list
+
 let noCsr:csrands = Nonce.random 64
 
 type pmsId =
@@ -59,6 +68,7 @@ type SessionInfo = {
     protocol_version: ProtocolVersion;
     cipher_suite: cipherSuite;
     compression: Compression;
+    extensions: negotiatedExtensions;
     pmsId: pmsId;
     pmsData: pmsData;
     client_auth: bool;
@@ -123,11 +133,12 @@ let epochCRand e =
 let epochCSRands e =
     epochCRand e @| epochSRand e
 
-type ConnectionInfo = {
+type preConnectionInfo = {
     role: Role; // cached, could be retrieved from id_out
     id_rand: random; // our random
     id_in: epoch;
     id_out: epoch}
+type ConnectionInfo = preConnectionInfo
 
 let connectionRole ci = ci.role
 
@@ -160,8 +171,7 @@ type id = {
   pv: ProtocolVersion; //Should be part of aeAlg
   aeAlg  : aeAlg
   csrConn: csrands;
-  writer : Role;
-  extPad : bool }
+  writer : Role }
 
 //let idInv (i:id):succEpoch = failwith "requires a log, and pointless to implement anyway"
 
@@ -188,8 +198,7 @@ let noId: id = {
   pv=SSL_3p0;
   aeAlg= MACOnly(MA_SSLKHASH(NULL));
   csrConn = noCsr;
-  writer=Client;
-  extPad=false }
+  writer=Client }
 
 let id e =
   if isInitEpoch e
@@ -201,10 +210,14 @@ let id e =
     let msi    = msi si
     let kdfAlg = kdfAlg si
     let aeAlg  = aeAlg cs pv
-    let csr    = csrands si
+    let csr    = epochCSRands e
     let wr     = epochWriter e
-    let extPad = si.extended_record_padding
-    {msId = msi; kdfAlg=kdfAlg; pv=pv; aeAlg = aeAlg; csrConn = csr; writer=wr; extPad = extPad }
+    {msId = msi;
+     kdfAlg=kdfAlg;
+     pv=pv;
+     aeAlg = aeAlg;
+     csrConn = csr;
+     writer=wr }
 
 // Application configuration
 type helloReqPolicy =
@@ -230,7 +243,6 @@ type config = {
 
     (* Common *)
     safe_renegotiation: bool
-    extended_padding: bool
     server_name: Cert.hint
     client_name: Cert.hint
 
@@ -253,7 +265,6 @@ let defaultConfig ={
     check_client_version_in_pms_for_old_tls = true
 
     safe_renegotiation = true
-    extended_padding = false
     server_name = "mitls.example.org"
     client_name = "client.example.org"
 

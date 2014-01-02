@@ -47,9 +47,11 @@ type writeOutcome =
     | WError of string (* internal *)
     | WriteAgain (* Possibly more data to send *)
     | WriteAgainFinishing (* Possibly more data to send, and the outgoing epoch changed *)
-    | WAppDataDone (* No more data to send in the current state *)
-    | WHSDone
-    | WMustRead (* Read until completion of Handshake *)
+    | WriteAgainClosing (* An alert must be sent before the connection is torn down *)
+    | WDone (* No more data to send in the current state *)
+    | WAppDataDone (* App data have been sent, no more data to send *)
+    | WriteFinished (* The finished message has been sent, but the handshake is not over *)
+    | WHSDone (* The handshake is complete *)
     | SentFatal of alertDescription * string (* The alert that has been sent *)
     | SentClose
 
@@ -60,6 +62,7 @@ type readOutcome =
     | RAgainFinishing
     | RAppDataDone of msg_i
     | RQuery of query * bool
+    | RFinished
     | RHSDone
     | RClose
     | RFatal of alertDescription (* The received alert *)

@@ -39,7 +39,7 @@ val splitRange: e:succEpoch -> r:range -> (r0:range * r1:range){r = Sum(r0,r1)}
 // streams have no destructors, so they do not leak secrets
 // they are used abstractly by TLS, except that
 // their logical definition is needed for authentication in application code.
-private type (;e:epoch) stream = {sb:bytes list}
+private type (;e:epoch) stream = {sb:cbytes list}
 
 // the implementation of this type is application-specific
 // but it must provide the following functions to TLS
@@ -57,19 +57,19 @@ function val ExtendStream: 'a * 'b * 'c * 'd -> 'e
 private definition !e,s,r,b. ExtendStream(e,s,r,b) = {sb = b :: s.sb }
 
 function val ExtendStreamDelta: 'a * 'b * 'c * 'd -> 'e
-private definition !e,s,r,d. ExtendStreamDelta(e,s,r,d) = ExtendStream(e,s,r,d.contents)
+private definition !e,s,r,d. ExtendStreamDelta(e,s,r,d) = ExtendStream(e,s,r,B(d.contents))
 
-// ask !e,e',s,s',r,r',d,d'.
-//   Payload(e,s,r,d) = Payload(e',s',r',d') =>
-//   ExtendStreamDelta(e,s,r,d) = ExtendStreamDelta(e,s,r,d')
+ask !e,e',s,s',r,r',d,d'.
+   Payload(e,s,r,d) = Payload(e',s',r',d') =>
+   ExtendStreamDelta(e,s,r,d) = ExtendStreamDelta(e,s,r,d')
 
 function val StreamBytes: e:epoch * (;e)stream -> cbytes
 private definition !e,s,h,t.
  (s.sb = []   => StreamBytes(e,s) = [||]) /\
- (s.sb = h::t => StreamBytes(e,s) = (StreamBytes(e,{sb=t}) @| B(h)))
+ (s.sb = h::t => StreamBytes(e,s) = (StreamBytes(e,{sb=t}) @| h))
 
 ask !e. StreamBytes(e,EmptyStream(e)) = [||]
-ask !e,s,r,b. StreamBytes(e,ExtendStream(e,s,r,b)) = ( StreamBytes(e,s) @| B(b) )
+ask !e,s,r,b. StreamBytes(e,ExtendStream(e,s,r,b)) = ( StreamBytes(e,s) @| b )
 ask !e,s,r,d. StreamBytes(e,ExtendStreamDelta(e,s,r,d)) = ( StreamBytes(e,s) @| Payload(e,s,r,d) )
 
 // The following two functions are

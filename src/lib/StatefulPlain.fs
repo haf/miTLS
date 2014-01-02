@@ -76,10 +76,7 @@ let extendHistory (i:id) d (sh:history) (r:range) f =
 let plain (i:id) (h:history) (ad:adata) (r:range) (b:bytes) =
 
     let ct = parseAD i ad in
-    match TLSFragment.fragment i ct r b with
-    | Error(x,y) -> Error(x,y)
-    | Correct(res) -> correct ({contents = res})
-
+    {contents = TLSFragment.fragment i ct r b}
 let reprFragment (i:id) (ad:adata) (r:range) (f:plain) =
     let ct = parseAD i ad in
     let x = f.contents in

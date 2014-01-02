@@ -47,6 +47,15 @@ type crand = random
 type srand = random
 type csrands = (;64) lbytes
 
+type cVerifyData = bytes (* ClientFinished payload *)
+type sVerifyData = bytes (* ServerFinished payload *)
+
+// Defined here to not depend on TLSExtension
+type negotiatedExtension =
+    | NE_VoidExtension
+
+type negotiatedExtensions = negotiatedExtension list
+
 // -------------------------------------------------------------------
 // Predicates specifying the honesty of keys and key material (trust assumptions)
 
@@ -62,7 +71,7 @@ definition !pk. HonestRSAKey(pk) <=> RSAKey.Honest(pk)
 
 private type pmsId = // we use pmsId as an opaque index to pms
     | NoPmsId
-	| SomePmsId of PMS.pms
+    | SomePmsId of PMS.pms
 
 function val PmsId: PMS.pms -> pmsId
 private definition !pms. PmsId(pms) = SomePmsId(pms)
@@ -70,9 +79,9 @@ val pmsId: pms:PMS.pms -> id:pmsId{ id = PmsId(pms) }
 
 // ``this pms is honestly generated and used for extraction''
 predicate HonestPMS of pmsId
-definition not HonestPMS(NoPmsId)
-definition !pk,cv,rsapms.    HonestPMS(PmsId(PMS.RSAPMS(pk,cv,rsapms)))   <=> PMS.HonestRSAPMS(pk,cv,rsapms)
-definition !p,g,gx,gy,dhpms. HonestPMS(PmsId(PMS.DHPMS(p,g,gx,gy,dhpms))) <=> PMS.HonestDHPMS(p,g,gx,gy,dhpms)
+private definition not HonestPMS(NoPmsId)
+private definition !pk,cv,rsapms.    HonestPMS(PmsId(PMS.RSAPMS(pk,cv,rsapms)))   <=> PMS.HonestRSAPMS(pk,cv,rsapms)
+private definition !p,g,gx,gy,dhpms. HonestPMS(PmsId(PMS.DHPMS(p,g,gx,gy,dhpms))) <=> PMS.HonestDHPMS(p,g,gx,gy,dhpms)
 val honestPMS: (pi:pmsId) -> b:bool {b=true => HonestPMS(pi)}
 val noPmsId: i:pmsId { not HonestPMS(i) }
 
@@ -80,10 +89,10 @@ val noPmsId: i:pmsId { not HonestPMS(i) }
 
 // Here we consider the strength of the parameters in pmsId
 predicate StrongRSAKEX of pmsId
-definition !pk,cv,rsapms.    StrongRSAKEX(SomePmsId(PMS.RSAPMS(pk,cv,rsapms)))   <=> PMS.SafeRSA(pk,cv)
+private definition !pk,cv,rsapms.    StrongRSAKEX(SomePmsId(PMS.RSAPMS(pk,cv,rsapms)))   <=> PMS.SafeRSA(pk,cv)
 
 predicate StrongDHKEX  of pmsId
-definition !p,g,gx,gy,dhpms.  StrongDHKEX(SomePmsId(PMS.DHPMS(p,g,gx,gy,dhpms))) <=> PMS.SafeDH(p,g,gx,gy)
+private definition !p,g,gx,gy,dhpms.  StrongDHKEX(SomePmsId(PMS.DHPMS(p,g,gx,gy,dhpms))) <=> PMS.SafeDH(p,g,gx,gy)
 
 // -------------------------------------------------------------------
 // public pmsData, used e.g. to represent anonymous clients
@@ -125,8 +134,8 @@ type msId =        // We record the parameters used to derive this MS:
 
 // ``the MS at this index is abstractly generated and used within PRF''
 predicate HonestMS of msId
-definition !pmsId,csr,creAlg.
-  HonestMS((pmsId,csr,creAlg)) <=> HonestPMS(pmsId) /\ StrongCRE(creAlg)
+definition !msi.
+  HonestMS(msi) <=> (?pmsId,csr,creAlg. msi = (pmsId,csr,creAlg) /\ HonestPMS(pmsId) /\ StrongCRE(creAlg))
 
 val noMsId: i:msId { not HonestMS(i) }
 
@@ -144,7 +153,8 @@ type SessionInfo = {
     protocol_version: ProtocolVersion;
     cipher_suite: cipherSuite;
     compression: Compression;
-	pmsId: pmsId;
+	extensions: negotiatedExtensions;
+    pmsId: pmsId;
     pmsData: pmsData;
     client_auth: bool;
     clientID: Cert.cert list;
@@ -253,20 +263,29 @@ private definition !e. IsValidEpoch(e) <=> (IsInitEpoch(e) \/
                                             (IsSuccEpoch(e) /\ IsValidEpoch(Pred(e))))
 
 type epoch = e:preEpoch {IsValidEpoch(e)}
-type succEpoch = e:epoch {IsSuccEpoch(e) /\ IsValidEpoch(Pred(e))}
+type succEpoch = e:epoch {IsSuccEpoch(e)}
 
 val isInitEpoch: e:epoch -> b:bool{(b = true /\ IsInitEpoch(e)) \/ (b = false /\ IsSuccEpoch(e))}
+
+function val Peer: epoch -> epoch
+private definition
+        (!r. Peer(InitEpoch(r)) = InitEpoch(DualRole(r))) /\
+        (!cr,sr,si,p. Peer(SuccEpoch(cr,sr,si,p)) = SuccEpoch(cr,sr,si,Peer(p)))
 
 function val EpochSI: succEpoch -> SessionInfo
 private definition !c,s,si,p. EpochSI(SuccEpoch(c,s,si,p)) = si
 
 function val EpochSRand: succEpoch -> bytes
 function val EpochCRand: succEpoch -> bytes
+function val EpochCSRands: succEpoch -> bytes
 private definition !b1,b2,si,pe. EpochSRand(SuccEpoch(b1,b2,si,pe)) = b2
 private definition !b1,b2,si,pe. EpochCRand(SuccEpoch(b1,b2,si,pe)) = b1
+private definition !csr,e. csr = EpochCSRands(e) <=>
+                       B(csr) =
+                       B(EpochCRand(e)) @| B(EpochSRand(e))
 val epochSRand:   e:succEpoch -> b:crand{B(b)   = B(EpochSRand(e))}
 val epochCRand:   e:succEpoch -> b:srand{B(b)   = B(EpochCRand(e))}
-val epochCSRands: e:succEpoch -> b:csrands{B(b) = B(EpochCRand(e)) @| B(EpochSRand(e))}
+val epochCSRands: e:succEpoch -> b:csrands{b = EpochCSRands(e)}
 
 val epochSI: e:succEpoch -> si:SessionInfo{si = EpochSI(e)}
 
@@ -284,18 +303,19 @@ definition !e. StrongAE(e)   <=> StrongAESI(EpochSI(e))
 // -------------------------------------------------------------------
 // Connection information (public immutable data)
 
-type ConnectionInfo =
+type preConnectionInfo =
 	{ role: Role;
 	  id_rand: random;
 	  id_in:  epoch;
       id_out: epoch}
+type ConnectionInfo = (p:preConnectionInfo){EpochWriter(p.id_in) = DualRole(EpochWriter(p.id_out))}
 
 val connectionRole: ci:ConnectionInfo -> r:Role{r = ci.role}
 
 val initConnection: r:Role -> ra:random -> ci:ConnectionInfo
   { ci.role = r /\ ci.id_rand = ra /\ IsInitEpoch(ci.id_in) /\ IsInitEpoch(ci.id_out)}
 val nextEpoch: e:epoch -> c:crand -> s:srand -> si:SessionInfo -> e':succEpoch
-  { Pred(e') = e /\ EpochSI(e') = si /\ EpochCRand(e') = c /\ EpochSRand(e') = s}
+  { Pred(e') = e /\ EpochSI(e') = si /\ EpochCRand(e') = c /\ EpochSRand(e') = s /\ EpochWriter(e') = EpochWriter(e)}
 
 val predEpoch: e:succEpoch -> e':epoch{ e' = Pred(e)}
 
@@ -419,14 +439,18 @@ theorem not AuthId(noId)
 function val Id: epoch -> id
 val id: s:epoch -> i:id {i=Id(s)}
 definition !e:epoch. IsInitEpoch(e) => Id(e) = noId
-definition !e:epoch. IsSuccEpoch(e) => Id(e) = SiId(EpochSI(e),EpochWriter(e))
+definition !e:epoch. IsSuccEpoch(e) => Id(e) =
+      { msId    = MsI(EpochSI(e));
+        kdfAlg  = KdfAlg(EpochSI(e));
+	pv      = EpochSI(e).protocol_version; // should be part of aeAlg
+	aeAlg   = SIaeAlg(EpochSI(e));
+	csrConn = EpochCSRands(e);
+	writer  = EpochWriter(e);  }
 
-ask !wr:Role. Id(InitEpoch(wr)) = noId
-ask !wr:Role. not AuthId(Id(InitEpoch(wr)))
+ask !e. IsInitEpoch(e) => Id(e) = noId
+ask !e. IsInitEpoch(e) => not AuthId(Id(e))
 
 val unAuthIdInv: i:id{not AuthId(i)} -> s:epoch {Id(s) = i}
-
-ask !e. IsInitEpoch(e) => not AuthId(Id(e))
 
 // -------------------------------------------------------------------------
 // GLOBAL SAFETY PROPERTIES
@@ -448,12 +472,18 @@ val safeHS: (e:epoch) -> b:bool { b = true <=> SafeHS(e)}
 
 // Predicates specifying the security of TLS connections
 
+predicate Open of epoch
+definition !e. Open(e) <=>
+                            (?r. (r = Client \/ r = Server) /\
+                                  SentCCS(r,e) /\
+                                  SentCCS(DualRole(r),Peer(e)))
+
 predicate Safe   of epoch        // The epoch parameters yield privacy & integrity
-definition !e. Safe(e) <=> (SafeId(Id(e)) /\ SentCCS(Server,e) /\ SentCCS(Client,e))
+definition !e. Safe(e) <=> (SafeId(Id(e)) /\ Open(e))
 val safe:   (e:epoch) -> b:bool { b = true <=> Safe(e)}
 
 predicate Auth   of epoch        // The epoch parameters yield integrity (not necesarily privacy)
-definition !e. Auth(e) <=> (AuthId(Id(e)) /\ SentCCS(Server,e) /\ SentCCS(Client,e))
+definition !e. Auth(e) <=> (AuthId(Id(e)) /\ Open(e))
 val auth:    (e:epoch) -> b:bool {b = true <=> Auth(e)}
 
 ask !e. Safe(e) => Auth(e)
@@ -462,11 +492,10 @@ ask !e. not(Auth(e)) => not(Safe(e))
 // so that TLS can exchange any traffic on the initial null connection
 ask !e. IsInitEpoch(e) => not Auth(e)
 
-predicate Open of epoch
-private definition !e. Open(e) <=> (SentCCS(Client,e) /\ SentCCS(Server,e))
 ask !e. Open(e) => (AuthId(Id(e)) => Auth(e))
 ask !e. Open(e) => (SafeId(Id(e)) => Safe(e))
 ask !e. Auth(e) => Open(e)
+
 private assume !r,e,e'. SentCCS(r,e) /\ SentCCS(r,e') /\ Id(e) = Id(e') => e = e'
 ask !e,e'. Open(e) /\ Open(e') /\ Id(e) = Id(e') => e = e'
 
@@ -496,7 +525,6 @@ type config = {
 
     (* Common *)
     safe_renegotiation: bool;
-	extended_padding: bool;
 	server_name: Cert.hint;
 	client_name: Cert.hint;
 

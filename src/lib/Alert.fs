@@ -152,12 +152,12 @@ let makeFragment e b =
     let ki = id e in
     if length b < fragmentLength then
       let r0 = (length b, length b) in
-      let f = HSFragment.userPlain ki r0 b in
+      let f = HSFragment.fragmentPlain ki r0 b in
       ((r0,f),empty_bytes)
     else
       let (b0,rem) = Bytes.split b fragmentLength in
       let r0 = (length b0, length b0) in
-      let f = HSFragment.userPlain ki r0 b0 in
+      let f = HSFragment.fragmentPlain ki r0 b0 in
       ((r0,f),rem)
 
 let next_fragment ci state =
@@ -193,7 +193,7 @@ let handle_alert ci state alDesc =
 let recv_fragment (ci:ConnectionInfo) state (r:range) (f:HSFragment.fragment) =
 
     let ki = id ci.id_in in
-    let fragment = HSFragment.userRepr ki r f in
+    let fragment = HSFragment.fragmentRepr ki r f in
     match state.al_incoming with
     | x when length x = 0 ->
         (* Empty buffer *)

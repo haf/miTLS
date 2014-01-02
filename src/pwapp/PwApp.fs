@@ -52,7 +52,6 @@ let config (servname : string) = {
 
     (* Common *)
     TLSInfo.safe_renegotiation = true
-    TLSInfo.extended_padding = false
     TLSInfo.server_name = servname
     TLSInfo.client_name = ""
 

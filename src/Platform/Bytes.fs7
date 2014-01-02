@@ -35,6 +35,7 @@ function val Length: bytes -> int
 // lengths distribute over concatenations
 assume !x, y. BLength(x @| y) = BLength(x) + BLength(y)
 assume !x. Length(x) = BLength(B(x))
+
 val length: b:bytes -> l:nat {Length(b) = l}
 
 type (;l:nat) lbytes = b:bytes {Length(b) = l}

@@ -80,9 +80,6 @@ let DEC (id:id) state (adata:LHAEPlain.adata) (rg:range) cipher =
         | None ->
            let reason = perror __SOURCE_FILE__ __LINE__ "" in Error(AD_bad_record_mac, reason)
         | Some(plain) ->
-           match LHAEPlain.plain id adata rg plain with
-           | Error(x,y) ->
-            // In extended_padding, padding check has failed
-            Error(x,y)
-           | Correct(plain) -> correct (state,plain)
+           let plain = LHAEPlain.plain id adata rg plain in
+           correct (state,plain)
     | _ -> unexpected "[DEC] invoked on wrong algorithm"

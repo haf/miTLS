@@ -32,10 +32,10 @@ type pkey = dhpkey
 
 (* ------------------------------------------------------------------------ *)
 let check_element (pbytes:bytes) (ebytes:bytes) =
-    let p = new BigInteger(1,cbytes pbytes) in
+    let pm1 = (new BigInteger(1,cbytes pbytes)).Subtract(BigInteger.One) in
     let e = new BigInteger(1,cbytes ebytes) in
-    // check e in [2,p-1]
-    ((e.CompareTo BigInteger.One) > 0) && ((e.CompareTo p) < 0)
+    // check e in [2,p-1)
+    ((e.CompareTo BigInteger.One) > 0) && ((e.CompareTo pm1) < 0)
 
 (* ------------------------------------------------------------------------ *)
 let gen_params () : dhparams =

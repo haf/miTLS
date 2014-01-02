@@ -46,9 +46,7 @@ ask !i. (?mac. i.aeAlg = MACOnly(mac) \/ i.aeAlg = MtE(Stream_RC4_128,mac)) => I
 
 val ivSize: e:id -> l:nat{l=IVSize(e)}
 
-val fixedPadSize: si:SessionInfo -> l:nat{
-    (si.extended_record_padding = true /\ l=2) \/
-    (si.extended_record_padding = false /\ l=1)}
+val fixedPadSize: id:id -> l:nat{l=1}
 
 function val MaxPadSize: i:id * unit -> nat
 private definition !i,mac,alg,aeAlg.

@@ -244,7 +244,7 @@ type csAuthEncAlg = // internal; used only in ciphersuite definition
     | CS_MtE of cipherAlg * hashAlg
     | CS_AEAD of aeadAlg * hashAlg
 
-private type cipherSuite = // internal; kept abstract in the .fsi
+type cipherSuite = // internal; kept abstract in the .fsi
     | NullCipherSuite
     | CipherSuite of kexAlg * csAuthEncAlg
     | OnlyMACCipherSuite of kexAlg * hashAlg
@@ -288,12 +288,12 @@ val geqPV: a:ProtocolVersion -> b:ProtocolVersion -> r:bool
 val somePV: a: ProtocolVersion -> b:ProtocolVersion option {b = Some(a)}
 
 predicate val IsNullCiphersuite: cipherSuite -> bool
-definition !x. IsNullCiphersuite(x) <=> x = NullCipherSuite
+private definition !x. IsNullCiphersuite(x) <=> x = NullCipherSuite
 val nullCipherSuite: c:cipherSuite{IsNullCiphersuite(c)}
 val isNullCipherSuite: c:cipherSuite -> r:bool{r=true <=> IsNullCiphersuite(c)}
 
 predicate val IsSCSVCiphersuite: cipherSuite -> bool
-definition !x. IsSCSVCiphersuite(x) <=> ?z. x = SCSV(z)
+private definition !x. IsSCSVCiphersuite(x) <=> ?z. x = SCSV(z)
 
 val isAnonCipherSuite: cipherSuite -> bool
 val isDHCipherSuite: cipherSuite -> bool
@@ -365,6 +365,12 @@ function val CipherSuiteSigHashAlg: cipherSuite -> sigHashAlg
 function val CipherSuiteMACAlg: cipherSuite * ProtocolVersion -> macAlg
 function val CipherSuiteENCAlg: cipherSuite * ProtocolVersion -> encAlg
 function val CipherSuiteAuthEncAlg: cipherSuite * ProtocolVersion -> aeAlg
+private definition !kex,mac,pv.
+	CipherSuiteAuthEncAlg(OnlyMACCipherSuite(kex,mac),pv) = MACOnly(TLSMACAlg(mac,pv))
+
+function val CipherSuiteKEXAlg: cipherSuite -> kexAlg
+private definition !kex,ae.
+	CipherSuiteKEXAlg(CipherSuite(kex,ae)) = kex
 
 private definition !kex,mac,pv.
 	CipherSuiteAuthEncAlg(OnlyMACCipherSuite(kex,mac),pv) = MACOnly(TLSMACAlg(mac,pv))

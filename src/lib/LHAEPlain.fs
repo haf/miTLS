@@ -35,9 +35,8 @@ type plain = fragment
 let plain (i:id) (ad:adata) (rg:range) b =
     let ad = parseAD i ad in
     let h = StatefulPlain.emptyHistory i in
-    match StatefulPlain.plain i h ad rg b with
-    | Error(x,y) -> Error(x,y)
-    | Correct(p) -> correct ({contents =  p})
+    let p = StatefulPlain.plain i h ad rg b
+    {contents =  p}
 
 let reprFragment (i:id) (ad:adata) (rg:range) p =
     let ad = parseAD i ad in

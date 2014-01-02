@@ -90,9 +90,8 @@ let recordPacketIn e conn ct payload =
         let plen = length payload in
         let rg = (plen,plen) in
         let i = id e in
-        match TLSFragment.fragment i ct rg payload with
-        | Error(x,y) -> unexpected "[recordPacketIn] creating a fragment should never fail on initial epoch"
-        | Correct(msg) -> correct(conn,rg,msg)
+        let msg = TLSFragment.fragment i ct rg payload in
+        correct(conn,rg,msg)
     | (false,SomeState(history,state)) ->
         let i = id e in
         let ad = StatefulPlain.makeAD i ct in

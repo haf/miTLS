@@ -242,6 +242,8 @@
     <None Include="TLSExtensions.fs7" />
     <Compile Include="TLSExtensions.fsi" />
     <Compile Include="TLSExtensions.fs" />
+    <None Include="HandshakeMessages.fs7" />
+    <Compile Include="HandshakeMessages.fs" />
     <None Include="Handshake.fs7" />
     <Compile Include="Handshake.fsi" />
     <Compile Include="Handshake.fs" />

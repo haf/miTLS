@@ -15,14 +15,13 @@ open Bytes
 open TLSInfo
 open Range
 open DataStream
-open Error
-open TLSError
 
 #if ideal
 type fpred = DeltaFragment of epoch * stream * range * delta
 #endif
 
-type fragment = {frag: epoch * stream * delta}
+type preFragment = {frag: epoch * stream * delta}
+type fragment = preFragment
 type plain = fragment
 
 let fragment e s r d =
@@ -54,35 +53,15 @@ let delta e s r f =
       let s'' = append e s r d in
       (d,s'')
     #endif
-
 let plain i r b =
   let e = TLSInfo.unAuthIdInv i in
   let s = DataStream.init e in
-  if i.extPad then
-      match TLSConstants.vlsplit 2 b with
-      | Error(x,y) -> Error(x,y)
-      | Correct(res) ->
-        let (_,b) = res in
-        let d = DataStream.deltaPlain e s r b in
-        let res = {frag = (e,s,d)} in
-        correct (res)
-  else
-      let d = DataStream.deltaPlain e s r b in
-      let res = {frag = (e,s,d)} in
-      correct (res)
+  let d = DataStream.deltaPlain e s r b in
+  {frag = (e,s,d)}
 
 let repr (i:id) r f =
   let (e',s,d) = f.frag in
-  let b = DataStream.deltaRepr e' s r d in
-  if i.extPad then
-    let r = alignedRange i r in
-    let (_,h) = r in
-    let plen = h - (length b) in
-    let pad = createBytes plen 0 in
-    let pad = TLSConstants.vlbytes 2 pad in
-    pad @| b
-  else
-    b
+  DataStream.deltaRepr e' s r d
 
 #if ideal
 let widen (i:id) (r0:range) (f0:fragment) =

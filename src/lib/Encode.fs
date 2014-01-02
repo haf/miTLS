@@ -24,7 +24,7 @@ type preds = | CipherRange of id * range * nat
 #endif
 
 type plain =
-    {plain: bytes;
+    {plain: LHAEPlain.plain;
      tag:   MAC.tag;
      ok:    bool}
 
@@ -42,14 +42,14 @@ let payload (e:id) (rg:range) ad f =
   #endif
     LHAEPlain.repr e ad rg f
 
-let macPlain (e:id) (rg:range) ad b =
+let macPlain (e:id) (rg:range) ad f =
+    let b = payload e rg ad f
     ad @| vlbytes 2 b
 
 let mac e k ad rg plain =
-    let b = payload e rg ad plain in
-    let text = macPlain e rg ad b in
+    let text = macPlain e rg ad plain in
     let tag  = MAC.Mac e k text in
-    {plain = b;
+    {plain = plain;
      tag = tag;
      ok = true
     }
@@ -62,12 +62,8 @@ let verify (e:id) k ad rg plain =
             Still, we note a small timing leak here:
             The time to verify the mac is linear in the plaintext length. *)
         if MAC.Verify e k text tag then
-          if plain.ok then
-              match LHAEPlain.plain e ad rg f with
-              | Error(x,y) ->
-                // In extended padding, pading check has failed
-                Error(x,y)
-              | Correct(frag) -> correct frag
+          if plain.ok
+            then correct f
           else
               let reason = "" in
               Error(AD_bad_record_mac,reason)
@@ -76,12 +72,12 @@ let verify (e:id) k ad rg plain =
            Error(AD_bad_record_mac,reason)
 
 let encodeNoPad (e:id) (tlen:nat) rg (ad:LHAEPlain.adata) data tag =
-    //let b = payload e rg ad data in
+    let b = payload e rg ad data in
     let (_,h) = rg in
-    if (not e.extPad) && h <> length data then
+    if h <> length b then
         Error.unexpected "[encodeNoPad] invoked on an invalid range."
     else
-    let payload = data @| tag
+    let payload = b @| tag
     if length payload <> tlen then
         Error.unexpected "[encodeNoPad] Internal error."
     else
@@ -90,14 +86,14 @@ let encodeNoPad (e:id) (tlen:nat) rg (ad:LHAEPlain.adata) data tag =
 let pad (p:int)  = createBytes p (p-1)
 
 let encode (e:id) (tlen:nat) rg (ad:LHAEPlain.adata) data tag =
-    //let b = payload e rg ad data in
-    let lb = length data in
+    let b = payload e rg ad data in
+    let lb = length b in
     let lm = length tag in
     let ivL = ivSize e in
     let pl = tlen - lb - lm - ivL
     if pl > 0 && pl <= 256 then
 
-        let payload = data @| tag @| pad pl
+        let payload = b @| tag @| pad pl
         if length payload <> tlen - ivL then
             Error.unexpected "[encode] Internal error."
         else
@@ -114,8 +110,8 @@ let decodeNoPad (e:id) (ad:LHAEPlain.adata) rg tlen pl =
     let maclen = macSize macAlg in
     let payloadLen = plainLen - maclen in
     let (frag,tag) = Bytes.split pl payloadLen in
-    //let aeadF = LHAEPlain.plain e ad rg frag in
-    {plain = frag;
+    let aeadF = LHAEPlain.plain e ad rg frag in
+    {plain = aeadF;
      tag = tag;
      ok = true}
 
@@ -139,8 +135,8 @@ let decode (e:id) (ad:LHAEPlain.adata) rg (tlen:nat) pl =
         let macstart = pLen - macSize - 1 in
         let (frag,tag) = split tmpdata macstart in
         let (l,h) = rg in
-        //let aeadF = LHAEPlain.plain e ad rg frag in
-        { plain = frag;
+        let aeadF = LHAEPlain.plain e ad rg frag in
+        { plain = aeadF;
             tag = tag;
             ok = false;
         }
@@ -157,8 +153,8 @@ let decode (e:id) (ad:LHAEPlain.adata) rg (tlen:nat) pl =
             if equalBytes expected pad then
                 let (frag,tag) = split data_no_pad macstart in
                 let (l,h) = rg in
-                //let aeadF = LHAEPlain.plain e ad rg frag in
-                { plain = frag;
+                let aeadF = LHAEPlain.plain e ad rg frag in
+                { plain = aeadF;
                     tag = tag;
                     ok = true;
                 }
@@ -166,8 +162,8 @@ let decode (e:id) (ad:LHAEPlain.adata) rg (tlen:nat) pl =
                 let macstart = pLen - macSize - 1 in
                 let (frag,tag) = split tmpdata macstart in
                 let (l,h) = rg in
-                //let aeadF = LHAEPlain.plain e ad rg frag in
-                { plain = frag;
+                let aeadF = LHAEPlain.plain e ad rg frag in
+                { plain = aeadF;
                     tag = tag;
                     ok = false;
                 }
@@ -178,8 +174,8 @@ let decode (e:id) (ad:LHAEPlain.adata) rg (tlen:nat) pl =
             if padlen < bs then
                 let (frag,tag) = split data_no_pad macstart in
                 let (l,h) = rg in
-                //let aeadF = LHAEPlain.plain e ad rg frag in
-                { plain = frag;
+                let aeadF = LHAEPlain.plain e ad rg frag in
+                { plain = aeadF;
                     tag = tag;
                     ok = true;
                 }
@@ -187,8 +183,8 @@ let decode (e:id) (ad:LHAEPlain.adata) rg (tlen:nat) pl =
                 let macstart = pLen - macSize - 1 in
                 let (frag,tag) = split tmpdata macstart in
                 let (l,h) = rg in
-                //let aeadF = LHAEPlain.plain e ad rg frag in
-                { plain = frag;
+                let aeadF = LHAEPlain.plain e ad rg frag in
+                { plain = aeadF;
                     tag = tag;
                     ok = false;
                 }
@@ -202,10 +198,7 @@ let plain (e:id) ad tlen b =
         decodeNoPad e ad rg tlen b
     | MtE(CBC_Stale(_),_)
     | MtE(CBC_Fresh(_),_) ->
-        if e.extPad then
-            decodeNoPad e ad rg tlen b
-        else
-            decode e ad rg tlen b
+        decode e ad rg tlen b
 
 //  | GCM _ ->
     | _ -> unexpected "[Encode.plain] incompatible ciphersuite given."
@@ -221,9 +214,6 @@ let repr (e:id) ad rg pl =
         encodeNoPad e tlen rg ad lp tg
     | MtE(CBC_Stale(_),_)
     | MtE(CBC_Fresh(_),_) ->
-        if e.extPad then
-            encodeNoPad e tlen rg ad lp tg
-        else
-            encode e tlen rg ad lp tg
+        encode e tlen rg ad lp tg
 //  | GCM _ ->
     | _ -> unexpected "[Encode.repr] incompatible ciphersuite given."

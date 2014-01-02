@@ -55,15 +55,16 @@ let request c po = Dispatch.request c po
 let read ca =
   let cb,outcome = Dispatch.read ca in
     match outcome with
+      | RError(err) ->
+          ReadError(None,err)
       | WriteOutcome(WError(err)) -> ReadError(None,err)
-      | RError(err) -> ReadError(None,err)
       | RAppDataDone(b) -> Read(cb,b)
       | RQuery(q,adv) -> CertQuery(cb,q,adv)
       | RHSDone -> Handshaken(cb)
       | RClose -> Close (networkStream cb)
       | RFatal(ad) -> Fatal(ad)
       | RWarning(ad) -> Warning(cb,ad)
-      | WriteOutcome(WMustRead) -> DontWrite(cb)
+      | WriteOutcome(WriteFinished) -> DontWrite(cb)
       | WriteOutcome(WHSDone) -> Handshaken (cb)
       | WriteOutcome(SentFatal(ad,s)) -> ReadError(Some(ad),s)
       | WriteOutcome(SentClose) -> Close (networkStream cb)
@@ -78,6 +79,9 @@ let write c msg =
             match rdOpt with
               | None -> WriteComplete c
               | Some(rd) -> WritePartial (c,rd)
+      | WDone ->
+          (* We are in the open state, and providing some data to be sent, so only WAppDataDone can apply here *)
+          WriteError(None, perror __SOURCE_FILE__ __LINE__ "Invalid dispatcher state. This is probably a bug, please report it")
       | WHSDone ->
           (* A top-level write should never lead to HS completion.
              Currently, we report this as an internal error.
@@ -85,7 +89,7 @@ let write c msg =
              able to prove that this case should never happen, and so use the
              unexpected function. *)
           WriteError(None, perror __SOURCE_FILE__ __LINE__ "Invalid dispatcher state. This is probably a bug, please report it")
-      | WMustRead ->
+      | WriteFinished ->
           MustRead(c)
       | SentClose ->
           (* A top-level write can never send a closure alert on its own.
@@ -94,7 +98,7 @@ let write c msg =
           WriteError(None, perror __SOURCE_FILE__ __LINE__ "Invalid dispatcher state. This is probably a bug, please report it")
       | SentFatal(ad,err) ->
           WriteError(Some(ad),err)
-      | WriteAgain | WriteAgainFinishing ->
+      | WriteAgain | WriteAgainFinishing | WriteAgainClosing ->
           unexpected "[write] writeAll should never ask to write again"
 
 let full_shutdown c = Dispatch.full_shutdown c
@@ -109,7 +113,7 @@ let authorize c q =
       | RClose -> Close (networkStream cb)
       | RFatal(ad) -> Fatal(ad)
       | RWarning(ad) -> Warning(cb,ad)
-      | WriteOutcome(WMustRead) -> DontWrite(cb)
+      | WriteOutcome(WriteFinished) -> DontWrite(cb)
       | WriteOutcome(WHSDone) -> Handshaken (cb)
       | WriteOutcome(SentFatal(ad,s)) -> ReadError(Some(ad),s)
       | WriteOutcome(SentClose) -> Close (networkStream cb)

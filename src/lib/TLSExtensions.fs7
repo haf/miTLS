@@ -17,7 +17,7 @@ open Error
 open TLSError
 open TLSConstants
 
-private type extensionType =
+type extensionType =
     | HExt_renegotiation_info
 
 function val ExtensionTypeBytes: extensionType -> cbytes

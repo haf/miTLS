@@ -23,7 +23,7 @@ open TLSInfo
 predicate Authorize of Role * SessionInfo
 
 type (;sid:sessionID, r:Role) StorableSession = si:SessionInfo * (;si) PRF.masterSecret
-  { si.sessionID = sid /\ Authorize(r,si) }
+       { si.sessionID = sid /\ Authorize(r,si) }
 
 type SessionIndex = sessionID * Role * Cert.hint
 type entry = sid:sessionID * r:Role *  Cert.hint * (;sid,r) StorableSession
