@@ -1,0 +1,68 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module ENC
+
+(* Bulk encryption for TLS record, agile & assumed conditionally CPA with "Encode" for plaintexts *)
+(* This module is trusted *)
+
+open Bytes
+open Encode
+open TLSInfo
+open Error
+open Range
+
+// ciphers consist of one or more blocks of bytes.
+type cipher = b:bytes{Length(b) <= max_TLSCipher_fragment_length}
+
+private type (;ki:epoch) key = {k:bytes}
+
+type iv = bytes
+private type (;ki:epoch) iv3 =
+	| SomeIV of iv // SSL_3p0 and TLS_1p0
+	| NoIV         // TLS_1p0 and TLS_1p2
+
+private type (;ki:epoch)state =	{key: (;ki)key; iv: (;ki)iv3}
+
+type (;ki:epoch)encryptor = (;ki)state
+type (;ki:epoch)decryptor = (;ki)state
+
+// We do not use the state, but an abstract ID over it, so that we can link
+// encryptor and decryptor states
+private function val StateID: ki:epoch * (;ki)state -> int
+
+val GEN: ki:epoch -> (e:(;ki)encryptor{StateID(ki,e)=0}) * (d:(;ki)decryptor{StateID(ki,d)=0})
+val LEAK:   ki:epoch{not Safe(ki)} -> (;ki)state -> key:bytes * iv:bytes
+val COERCE: ki:epoch{not Safe(ki)} -> key:bytes -> iv:bytes -> (;ki)state
+
+(* an abstract predicate recording all encryption results. *)
+predicate val ENCrypted:
+  (e:epoch * ad:(;e)LHAEPlain.adata * c:cipher * 'a) -> bool // p:(;e,ad,CipherRangeClass(e,Length(c))) plain
+
+val ENC: ki:epoch -> s:(;ki) encryptor -> ad:(;ki)LHAEPlain.adata -> r:range ->
+  p:(;ki,ad,r)plain ->
+  ( (s': (;ki) encryptor{StateID(ki,s') = StateID(ki,s)+1}) *
+    (c : cipher{(Safe(ki) => ENCrypted(ki,ad,c,p)) /\ Length(c)=TargetLength(ki,r)}) )
+
+val DEC: ki:epoch -> s:(;ki) decryptor -> ad:(;ki)LHAEPlain.adata ->
+  c:cipher
+  { (Safe(ki) => ?p'. ENCrypted(ki,ad,c,p')) /\ Length(c) >= MinTlen(ki) } ->
+  ( (s': (;ki) decryptor{StateID(ki,s') = StateID(ki,s)+1}) *
+    (p : (;ki,ad,CipherRangeClass(ki,Length(c)))plain {!p'. ENCrypted(ki,ad,c,p') => p=p'}))
+
+type entry =
+  (ki:epoch * ad:(;ki)LHAEPlain.adata * c:cipher * p:(;ki,ad,CipherRangeClass(ki,Length(c)))plain)
+  { ENCrypted(ki,ad,c,p) }
+
+val log: entry list ref
+val cfind: e:epoch -> c:cipher -> xs: entry list ->
+	(ad:(;e)LHAEPlain.adata * rg:range * (;e,ad,rg) Encode.plain)

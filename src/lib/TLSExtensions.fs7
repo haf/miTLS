@@ -1,0 +1,83 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module TLSExtensions
+
+open Bytes
+open Error
+open TLSConstants
+
+private type extensionType =
+    | HExt_renegotiation_info
+
+function val ExtensionTypeBytes: extensionType -> bytes
+private definition ExtensionTypeBytes(HExt_renegotiation_info) = [|0xFFuy; 0x01uy|]
+
+val extensionTypeBytes: et:extensionType -> b:bytes{b=ExtensionTypeBytes(et)}
+val parseExtensionType: b:bytes -> (et:extensionType{b=ExtensionTypeBytes(et)}) Result
+val isExtensionType: et:extensionType -> ext:(extensionType * bytes) ->
+	b:bool{b = true => (?et',d. ext=(et',d) /\ et = et')}
+
+function val ExtensionBytes: extensionType * bytes -> bytes
+private definition !et,b.
+	ExtensionBytes(et,b) = ExtensionTypeBytes(et) @| VLBytes(2,b)
+predicate ContainsExtensions of bytes * (extensionType * bytes) list
+
+private definition !b,l. ContainsExtensions(b,l)
+
+val extensionBytes: et:extensionType -> d:bytes -> b:bytes{b=ExtensionBytes(et,d)}
+val consExt: extensionType * bytes -> (extensionType * bytes) list -> (extensionType * bytes) list
+val parseExtensionList: b:bytes -> cur:(extensionType * bytes) list ->
+	(res:(extensionType * bytes) list{ContainsExtensions(b,res)}) Result
+
+val renegotiationInfoExtensionBytes: vd:bytes ->
+	b:bytes{b=ExtensionBytes(HExt_renegotiation_info,VLBytes(1,vd))}
+val parseRenegotiationInfoExtension: b:bytes ->
+	(vd:bytes{b=VLBytes(1,vd)}) Result
+
+function val ExtensionsBytes: bytes -> bytes
+private definition !b. ExtensionsBytes(b) = VLBytes(2,b)
+val extensionsBytes: en:bool -> vd:bytes ->
+	b:bytes{(en = true /\ b = ExtensionsBytes(ExtensionBytes(HExt_renegotiation_info,VLBytes(1,vd))) ) \/
+			(en = false /\ b = [||])}
+
+val parseExtensions: b:bytes -> (res:(extensionType * bytes) list
+	{(b = [||] /\ res = [] ) \/
+	 (b <> [||] /\ ?ext. b = VLBytes(2,ext) /\ ContainsExtensions(ext,res) )
+	}) Result
+
+val check_reneg_info: got:bytes -> exp:bytes ->
+	b:bool{b=true => (?d. got = VLBytes(1,d) /\ exp = d)}
+
+val checkClientRenegotiationInfoExtension:
+	(extensionType * bytes) list -> cipherSuites -> bytes -> bool
+
+val inspect_ServerHello_extensions:
+	(extensionType * bytes) list -> bytes ->
+		unit Result
+
+(* SignatureAndHashAlgorithm parsing functions *)
+function val SigHashAlgBytes: 'a  -> bytes
+private definition !s,h. SigHashAlgBytes((s,h)) = HashAlgBytes(s) @| SigAlgBytes(h)
+
+val sigHashAlgBytes: a:Sig.alg -> b:bytes{b=SigHashAlgBytes(a)}
+val parseSigHashAlg: b:bytes -> (a:Sig.alg{b=SigHashAlgBytes(a)}) Result
+
+function val SigHashAlgsBytes: Sig.alg list -> bytes
+val sigHashAlgListBytes: al:Sig.alg list -> b:bytes{b=SigHashAlgsBytes(al)}
+val parseSigHashAlgList: b:bytes -> (al:Sig.alg list{b=SigHashAlgsBytes(al)}) Result
+function val DefaultSigHashAlgs: ProtocolVersion * cipherSuite -> Sig.alg list
+val default_sigHashAlg: pv:ProtocolVersion -> cs:cipherSuite -> al:Sig.alg list{al=DefaultSigHashAlgs(pv,cs)}
+val sigHashAlg_contains: Sig.alg list -> Sig.alg -> bool
+val cert_type_list_to_SigHashAlg: certType list -> ProtocolVersion -> Sig.alg list
+val cert_type_list_to_SigAlg: certType list -> sigAlg list
+val sigHashAlg_bySigList: Sig.alg list -> sigAlg list -> Sig.alg list

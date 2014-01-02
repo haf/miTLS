@@ -1,0 +1,47 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module MAC_SHA256
+
+(* Core HMAC algorithms, idealized for INT-CMA:
+   compared with MAC.fs7, we are still abstractly indexed (for multi-instance)
+   but the algorithm is fixed, the keys are abstract, and security is unconditional *)
+
+open Bytes
+open TLSConstants
+open TLSInfo
+
+val a: a:macAlg{ a = MA_HMAC(SHA256) } // symbolic constant
+
+type (;ki:succEpoch) keyrepr = k:bytes {Length(k) = MacSize(a)}
+private type (;ki:succEpoch) key = {k:(;ki) keyrepr}
+
+type text = bytes
+predicate val Msg: epoch * text -> bool
+
+type tag = m:bytes {Length(m) = MacSize(a)}
+
+val Mac:
+  ki:succEpoch -> (;ki) key ->
+  t:text {Msg(ki,t)} -> tag
+val Verify:
+  ki:succEpoch -> (;ki) key -> t:text ->
+  tag -> b:bool { b=true => Msg(ki,t) }
+
+val GEN:
+  ki:succEpoch -> (;ki) key
+
+(* typing the log for the ideal functionality *)
+
+private type entry = (ki:epoch * t:text * tag){Msg(ki,t)}
+private val log: entry list ref
+private val tmem: ki:epoch -> t:text -> entry list -> b:bool{ b=true => Msg(ki,t) }

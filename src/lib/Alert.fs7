@@ -1,0 +1,131 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module Alert
+
+open Bytes
+open Error
+open TLSInfo
+open Range
+
+private type (;ci:ConnectionInfo)pre_al_state = {
+  al_incoming: bytes; (* incomplete incoming message *)
+  al_outgoing: bytes (* emptybstr if nothing to be sent *)
+}
+type (;ci:ConnectionInfo)state = (;ci)pre_al_state
+
+type (;ki:epoch)ALFragReply =
+    | EmptyALFrag
+    | ALFrag of          (rg:range * (;ki,HSFragment.EmptyStream(ki),rg)HSFragment.plain)
+    | LastALFrag of      (rg:range * (;ki,HSFragment.EmptyStream(ki),rg)HSFragment.plain * alertDescription)
+    | LastALCloseFrag of (rg:range * (;ki,HSFragment.EmptyStream(ki),rg)HSFragment.plain)
+
+type (;ci:ConnectionInfo)alert_reply =
+    | ALAck of          (;ci)state
+    | ALFatal of        alertDescription * (;ci)state
+    | ALWarning of alertDescription * (;ci)state
+    | ALClose_notify of (;ci)state
+
+// Conversions
+function val AlertBytes: alertDescription -> bytes
+private assume
+	AlertBytes(AD_close_notify						) = [|1uy;   0uy|] /\
+	AlertBytes(AD_unexpected_message				) = [|2uy;  10uy|] /\
+	AlertBytes(AD_bad_record_mac					) = [|2uy;  20uy|] /\
+	AlertBytes(AD_decryption_failed					) = [|2uy;  21uy|] /\
+	AlertBytes(AD_record_overflow					) = [|2uy;  22uy|] /\
+	AlertBytes(AD_decompression_failure				) = [|2uy;  30uy|] /\
+	AlertBytes(AD_handshake_failure					) = [|2uy;  40uy|] /\
+	AlertBytes(AD_no_certificate					) = [|1uy;  41uy|] /\
+	AlertBytes(AD_bad_certificate_warning			) = [|1uy;  42uy|] /\
+	AlertBytes(AD_bad_certificate_fatal				) = [|2uy;  42uy|] /\
+	AlertBytes(AD_unsupported_certificate_warning	) = [|1uy;  43uy|] /\
+	AlertBytes(AD_unsupported_certificate_fatal		) = [|2uy;  43uy|] /\
+	AlertBytes(AD_certificate_revoked_warning		) = [|1uy;  44uy|] /\
+	AlertBytes(AD_certificate_revoked_fatal			) = [|2uy;  44uy|] /\
+	AlertBytes(AD_certificate_expired_warning		) = [|1uy;  45uy|] /\
+	AlertBytes(AD_certificate_expired_fatal			) = [|2uy;  45uy|] /\
+	AlertBytes(AD_certificate_unknown_warning		) = [|1uy;  46uy|] /\
+	AlertBytes(AD_certificate_unknown_fatal			) = [|2uy;  46uy|] /\
+	AlertBytes(AD_illegal_parameter					) = [|2uy;  47uy|] /\
+	AlertBytes(AD_unknown_ca						) = [|2uy;  48uy|] /\
+	AlertBytes(AD_access_denied						) = [|2uy;  49uy|] /\
+	AlertBytes(AD_decode_error						) = [|2uy;  50uy|] /\
+	AlertBytes(AD_decrypt_error						) = [|1uy;  51uy|] /\
+	AlertBytes(AD_export_restriction				) = [|2uy;  60uy|] /\
+	AlertBytes(AD_protocol_version					) = [|2uy;  70uy|] /\
+	AlertBytes(AD_insufficient_security				) = [|2uy;  71uy|] /\
+	AlertBytes(AD_internal_error					) = [|2uy;  80uy|] /\
+	AlertBytes(AD_user_cancelled_warning			) = [|1uy;  90uy|] /\
+	AlertBytes(AD_user_cancelled_fatal				) = [|2uy;  90uy|] /\
+	AlertBytes(AD_no_renegotiation					) = [|1uy; 100uy|] /\
+	AlertBytes(AD_unsupported_extension				) = [|2uy; 110uy|]
+
+val alertBytes: ad:alertDescription -> b:bytes{b=AlertBytes(ad)}
+val parseAlert: b:bytes -> (ad:alertDescription{b=AlertBytes(ad)}) Result
+
+predicate IsFatal of alertDescription
+private assume
+	IsFatal(AD_unexpected_message   		) /\
+	IsFatal(AD_bad_record_mac       		) /\
+	IsFatal(AD_decryption_failed    		) /\
+	IsFatal(AD_record_overflow      		) /\
+	IsFatal(AD_decompression_failure		) /\
+	IsFatal(AD_handshake_failure    		) /\
+	IsFatal(AD_bad_certificate_fatal		) /\
+	IsFatal(AD_unsupported_certificate_fatal) /\
+	IsFatal(AD_certificate_revoked_fatal    ) /\
+	IsFatal(AD_certificate_expired_fatal    ) /\
+	IsFatal(AD_certificate_unknown_fatal    ) /\
+	IsFatal(AD_illegal_parameter			) /\
+	IsFatal(AD_unknown_ca       			) /\
+	IsFatal(AD_access_denied    			) /\
+	IsFatal(AD_decode_error     			) /\
+	IsFatal(AD_export_restriction   		) /\
+	IsFatal(AD_protocol_version     		) /\
+	IsFatal(AD_insufficient_security		) /\
+	IsFatal(AD_internal_error   			) /\
+	IsFatal(AD_user_cancelled_fatal 		) /\
+	IsFatal(AD_unsupported_extension		)
+
+val isFatal: ad:alertDescription -> b:bool{b = true => IsFatal(ad)}
+
+val init: ci:ConnectionInfo ->
+	s:(;ci)state
+
+val send_alert: ci:ConnectionInfo -> s:(;ci)state -> alertDescription ->
+	s':(;ci)state
+
+val makeFragment: e:epoch -> b:bytes -> (rg:range * (;e,HSFragment.EmptyStream(e),rg)HSFragment.plain) * bytes
+
+val next_fragment: ci:ConnectionInfo -> s:(;ci)state ->
+	(res:(;ci.id_out)ALFragReply * s':(;ci)state)
+
+val handle_alert: ci:ConnectionInfo -> (;ci)state -> alertDescription -> (;ci)alert_reply
+
+val recv_fragment: ci:ConnectionInfo -> s:(;ci)state ->
+	rg:range -> f:(;ci.id_in,rg)HSFragment.fragment
+    // {Auth(ci.id_in) => HSFragment.Sent(ci.id_in,AlInStream(ci,s),rg,f)}
+	->
+	(s':(;ci)alert_reply
+
+	) Result
+
+val is_incoming_empty: ci:ConnectionInfo -> s:(;ci)state -> bool
+
+val reset_incoming: ci:ConnectionInfo -> s:(;ci)state ->
+	ci':ConnectionInfo{ci'.role = ci.role /\ ci'.id_out = ci.id_out} ->
+	s':(;ci')state
+
+val reset_outgoing: ci:ConnectionInfo -> s:(;ci)state ->
+	ci':ConnectionInfo{ci'.role = ci.role /\ ci'.id_in = ci.id_in} ->
+		s':(;ci')state

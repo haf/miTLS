@@ -1,0 +1,32 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module DHGroup
+
+(* Trusted: not typechecked *)
+
+open Bytes
+
+type p = bytes // DH group order, actually a bignum
+
+// for public parameters and exchange values;
+// we use an abstract predicate to ensure that elements
+// are bytes that have been correctly generated or checked,
+// e.g. Num(elt) in 2..p-1
+
+predicate val Elt: bytes * bytes -> bool
+type (;p:p) elt = b:bytes{ Elt(p,b) }
+
+type (;p:p) g = (;p) elt  // for the group generator
+
+val genElement: p:p -> g:(;p)g -> (;p)elt
+val checkElement: p:p -> b:bytes -> (b':(;p)elt{b=b'}) option

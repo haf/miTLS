@@ -1,0 +1,65 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module Cert
+
+(* Trusted Key and Certificate Store *)
+
+open Bytes
+open Error
+open TLSConstants
+
+type hint = string
+type cert = bytes
+
+type chain = cert list
+type sign_cert = (chain * a:Sig.alg * (;a)Sig.skey) option
+type enc_cert = (chain * RSAKey.sk) option
+
+val for_signing : Sig.alg list -> hint -> Sig.alg list -> sign_cert
+val for_key_encryption : Sig.alg list -> hint -> enc_cert
+
+val get_public_signing_key : cert -> a:Sig.alg -> (;a)Sig.pkey Result
+val get_public_encryption_key : cert -> RSAKey.pk Result
+
+val is_for_signing:        cert -> bool
+val is_for_key_encryption: cert -> bool
+
+function val SigPKCert: cert list * a:Sig.alg -> 'a //(;a)Sig.pkey
+val get_chain_public_signing_key : c:chain -> a:Sig.alg -> (pk:(;a)Sig.pkey{pk=SigPKCert(c,a)}) Result
+
+function val RSAPKCert: cert list -> RSAKey.pk
+val get_chain_public_encryption_key : c:chain -> (pk:RSAKey.pk{pk=RSAPKCert(c)}) Result
+
+val is_chain_for_signing:        chain -> bool
+val is_chain_for_key_encryption: chain -> bool
+
+val get_chain_key_algorithm : chain -> TLSConstants.sigAlg option
+
+function val CN: chain -> hint
+val get_hint: c:chain -> (cn:hint{cn=CN(c)}) option
+
+val validate_cert_chain : Sig.alg list -> chain -> bool
+
+(* ---- TLS-specific encoding ---- *)
+
+private val consCertificateBytes: c:bytes -> a:bytes ->
+	b:bytes{b=VLBytes(3,c) @| a}
+
+function val CertificateListBytes: chain -> bytes
+//private definition !bl. CertificateMsg(bl) = MessageBytes(HT_certificate,VLBytes(3,UnfoldBack(bl,[||])))
+
+val certificateListBytes: cl:chain ->
+	b:bytes{b=VLBytes(3,CertificateListBytes(cl))}
+val parseCertificateList: b:bytes -> acc:chain ->
+	(cl:chain{(* ?l. cl = l @ acc /\ b=CertificateListBytes(l) *)
+		acc = [] => b=CertificateListBytes(cl)}) Result

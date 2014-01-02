@@ -1,0 +1,75 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module PRF
+
+(* PRFs keyed by master secrets, both for key derivation and verifyData *)
+
+open Bytes
+open TLSInfo
+open StatefulLHAE
+
+type repr = (;48)lbytes
+//#begin-abstraction
+private type (;si:SessionInfo) masterSecret = {bytes: repr}
+//#end-abstraction
+
+function val Epochs: 'a -> 'b
+private definition !ci,r,e_in,e_out.
+	(ci = {role=Client;id_rand=r;id_in=e_in;id_out=e_out} /\
+	 Epochs(ci) = (ci.id_in,ci.id_out) ) \/
+	(ci = {role=Server;id_rand=r;id_in=e_in;id_out=e_out} /\
+	 Epochs(ci) = (ci.id_out,ci.id_in) )
+
+// AuthSI is defined in TLSInfo
+val sample: si:SessionInfo                            -> (;si)masterSecret
+//#begin-coerce
+val coerce: si:SessionInfo{not SafeHS_SI(si)} -> repr -> (;si)masterSecret
+//#end-coerce
+
+// Master secrets are used to derive key materials.
+// Compared with standard (non-tls) key derivation,
+// - the label is hardcoded & implicit;
+// - the seed (crandom @| srandom) is retrieved from the epoch
+
+val keyGen: ci:ConnectionInfo -> (;EpochSI(ci.id_out))masterSecret ->
+  ( w:(;ci.id_out)StatefulLHAE.writer *
+    r:(;ci.id_in) StatefulLHAE.reader )
+  { StatefulLHAE.History(ci.id_out,WriterState,w) = StatefulPlain.EmptyHistory(ci.id_out) /\
+    StatefulLHAE.History(ci.id_out,ReaderState,r) = StatefulPlain.EmptyHistory(ci.id_in)}
+
+private function val Fst: 'a -> 'b
+private function val Snd: 'a -> 'b
+private definition !e1,e2. Fst((e1,e2)) = e1
+private definition !e1,e2. Snd((e1,e2)) = e1
+
+private val log:  (ems:(e12:(epoch * epoch)  * (;Fst(e12))masterSecret) *
+                   ((;Fst(Fst(ems)),ReaderState)state *
+                    (;Snd(Fst(ems)),WriterState)state)) list ref
+private val finish_log: (SessionInfo * bytes * bytes) list ref
+
+// Master secrets are also used to generate and check verifyData tags,
+// providing conditional authentication of the (abstract) VerifyData predicate.
+
+predicate VerifyData of epoch * Role * bytes
+
+val makeVerifyData: e:succEpoch ->
+  r:Role -> (;EpochSI(e)) masterSecret ->
+  log:bytes{VerifyData(e,r,log)} ->
+  bytes (* length depends on cs, 12 by default *)
+
+val checkVerifyData: e:succEpoch -> r:Role -> (;EpochSI(e)) masterSecret ->
+				   log:bytes (* the log *) ->
+				   tag:bytes (* the expected value *) ->
+				   b:bool{(b = true /\ SafeHS(e)) => VerifyData(e,r,log)}
+
+val ssl_certificate_verify: si:SessionInfo -> (;si)masterSecret -> TLSConstants.sigAlg -> bytes -> bytes

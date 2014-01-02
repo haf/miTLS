@@ -1,0 +1,39 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module RSAKey
+
+(* This module is not typechecked *)
+
+// This module defines RSA keys
+// but not their use for public-key encryption: see RSA
+// (We use two modules to break a circular dependency)
+
+open Bytes
+
+type sk (* secret (decryption) key, abstract *)
+type pk (* public (encryption) key, abstract but bytes are accessible *)
+
+type modulus  = bytes
+type exponent = bytes
+
+(* Used in specifications *)
+function val PK: sk -> pk
+predicate Honest of pk
+
+val gen: unit -> p:pk * s:sk {p = PK(s)}
+
+val pkey: CoreACiphers.pk -> pk
+val pkey_repr:  pk -> CoreACiphers.pk
+
+val coerce: p:pk {not Honest(p)} -> CoreACiphers.sk -> s:sk{p = PK(s)}
+val leak:   s:sk {not Honest(PK(s))} -> CoreACiphers.sk

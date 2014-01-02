@@ -1,0 +1,111 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module Bytes
+
+(* Binary representations, using variable-length byte arrays *)
+(* This module implementation is trusted, not verified *)
+
+type nat = n:int {0 <= n} // a convenient abbreviation
+type bytes = byte array
+
+(* Lengths for arrays and lists *)
+
+function val Length: bytes -> int
+val length: b:bytes -> l:nat {Length(b) = l}
+// lengths distribute over concatenations
+assume !x:bytes, y:bytes. Length(x @| y) = Length(x) + Length(y)
+
+type (;l:nat) lbytes = b:bytes {Length(b) = l}
+
+function val ListLength: 'a list -> nat
+assume ListLength(op_Nil()) = 0
+assume !x,y. ListLength(op_ColonColon(x,y)) = 1 + ListLength(y)
+assume !l. Length(array_of_list(l)) = ListLength(l)
+
+val createBytes: l:int -> v:int { 0 <= v /\ v < 256 } -> (;l) lbytes
+
+val equalBytes: b0:bytes -> b1:bytes ->
+  r:bool {(r = true /\ b0 = b1) \/ (r = false /\ b0 <> b1)}
+
+(* Array concatenation (append) *)
+(* we use the infix operator @| both concretely and in formulas *)
+
+val op_AtBar: b1:bytes -> b2:bytes -> b:bytes{b = b1 @| b2}
+//val append: b1:bytes -> b2:bytes -> b:bytes{b = b1 @| b2}
+
+val split:
+  b:bytes -> i:nat{Length(b) >= i} ->
+  b1:bytes * b2:bytes { Length(b1) = i /\ b = b1 @| b2 }
+
+val split2: b:bytes -> i:nat -> j:nat  {Length(b) >= i+j} ->
+  b1:bytes * b2:bytes * b3:bytes { Length(b1)=i /\ Length(b2)=j /\ b = b1 @| b2 @| b3}
+
+// empty array is an identity for append
+// assume !x. [||] @| x = x
+assume !x. x @| [||] = x
+
+// append is injective when using fixed lengths.
+assume !b1,b2,c1,c2.
+  (b1 @| b2 = c1 @| c2 /\ Length(b1)=Length(c1)) => (b1=c1 /\ b2=c2)
+
+assume !b1,b2,c1,c2.
+  (b1 @| b2 = c1 @| c2 /\ Length(b2)=Length(c2)) => (b1=c1 /\ b2=c2)
+
+// append is associative
+assume !b1,b2,b3. (b1 @| b2) @| b3 = b1 @| (b2 @| b3)
+
+(* integer multi-byte representations *)
+
+function val IntBytes: int * int -> bytes
+
+val bytes_of_int: l:int -> i:int -> b:bytes{b = IntBytes(l,i)}
+val int_of_bytes: b:bytes {Length(b)<=8} -> i:nat
+  {b = IntBytes(Length(b),i) /\ (Length(b) = 1 => (0 <= i /\ i < 256)) }
+
+// the first argument is the length of the representation
+assume !l:int, i:int. Length(IntBytes(l,i)) = l
+// the representation is injective
+assume !l:int, i0:int, i1:int. IntBytes(l,i0) = IntBytes(l,i1) => i0=i1
+
+(* string representation, used in sample apps *)
+
+function val Utf8: string -> bytes
+val utf8:  s:string -> b:bytes { b = Utf8(s) }
+val iutf8: b:bytes -> s:string { b = Utf8(s) }
+
+// utf8 is injective
+assume !x:string, y:string. ( Utf8(x)=Utf8(y) => x = y )
+
+(* Time spans *)
+
+type DateTime
+type TimeSpan
+val now: unit -> DateTime
+val newTimeSpan: nat -> nat -> nat -> nat -> TimeSpan
+val addTimeSpan: DateTime -> TimeSpan -> DateTime
+val greaterDateTime: DateTime -> DateTime -> bool
+
+(* List operations *)
+
+function val Unfold: bytes * bytes list -> bytes
+function val UnfoldBack: bytes list * bytes -> bytes
+val fold:     (bytes -> bytes -> bytes) -> s:bytes -> bl:bytes list -> b:bytes{b=Unfold(s,bl)}
+val foldBack: (bytes -> bytes -> bytes) -> bl:bytes list -> s:bytes -> b:bytes{b=UnfoldBack(bl,s)}
+val filter: ('a -> bool) -> 'a list -> 'a list
+val exists: ('a -> bool) -> 'a list -> bool
+val memr: 'a list -> 'a -> bool
+val choose: ('a -> 'b option) -> 'a list -> 'b list
+val tryFind: ('a -> bool) -> 'a list -> 'a option
+val listLength: l:('a list) -> len:nat{ListLength(l)=len}
+val listHead: l:('a list){ListLength(l) > 0} -> 'a
+val find: ('a -> bool) -> 'a list -> 'a

@@ -1,0 +1,76 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module AppFragment
+open Bytes
+open TLSInfo
+open Range
+open DataStream
+
+(* Application fragments are defined from DataStream as pairs (s,d)
+   where s is a stream & d is a delta indexed by it. We also set up
+   predicates & functions to re-index with/without s. *)
+
+predicate DeltaFragment of ki:epoch * s:(;ki) stream * r:range * (;ki,s,r)delta
+private type (;ki:epoch,r:range) fragment =
+  {frag: (s:(;ki)stream * d:(;ki,s,r) delta{ Auth(ki) => DeltaFragment(ki,s,r,d)}) }
+
+function val Payload: e:epoch * r:range * (;e,r)fragment -> 'a // (;r)rbytes
+private definition !e,r,s,d. Payload(e,r,{frag = (s,d)}) = DataStream.Payload(e,s,r,d)
+
+function val Extend: 'a * 'b * 'c * 'd -> 'e
+private definition !ki,s,r,s',d.
+  Extend(ki,s,r,{frag = (s',d)}) = ExtendStream(ki,s,r,d)
+
+predicate FragOfDelta of e:epoch * r:range * (;e,r)fragment * s:(;e)stream * (;e,s,r)delta
+private definition !e,r,f,s,d.
+	FragOfDelta(e,r,f,s,d) <=> f.frag = (s,d)
+
+ask !e,r,f,s,d. FragOfDelta(e,r,f,s,d) =>
+	Payload(e,r,f) = DataStream.Payload(e,s,r,d)
+ask !e,r,f,s,d. FragOfDelta(e,r,f,s,d) =>
+ 	Extend(e,s,r,f) = ExtendStream(e,s,r,d)
+
+predicate Sent of ki:epoch * (;ki) stream * r:range * (;ki,r)fragment
+private definition !ki,s,r,f. Sent(ki,s,r,f) <=>
+  (?d,r. f.frag = (s,d) /\ DeltaFragment(ki,s,r,d))
+
+type (;e:epoch,s:(;e)stream,r:range)plain = f:(;e,r) fragment{Auth(e) => Sent(e,s,r,f)}
+
+// range-based fragmentation
+
+val fragment: ki:epoch -> s:(;ki) stream -> r:range ->
+  d:(;ki,s,r) delta ->
+  (f:(;ki,r) fragment * s':(;ki) stream){Sent(ki,s,r,f) /\ s' = Extend(ki,s,r,f) /\ FragOfDelta(ki,r,f,s,d)}
+
+val delta: ki:epoch -> s:(;ki) stream -> r:range ->
+  f:(;ki,r) fragment{Auth(ki) => Sent(ki,s,r,f)} ->
+  d:(;ki,s,r) delta * s':(;ki) stream{s' = Extend(ki,s,r,f)}
+
+val delta': ki:epoch -> s:(;ki) stream -> r:range ->
+  f:(;ki,r) fragment{not Auth(ki)} ->
+  d:(;ki,s,r) delta * s':(;ki) stream{s' = ExtendStream(ki,s,r,d)}
+
+val plain: ki:epoch{not Auth(ki)} -> r:range -> b:(;r) rbytes -> f:(;ki,r) fragment{b = Payload(ki,r,f)}
+val repr:  ki:epoch{not Safe(ki)} -> r:range -> f:(;ki,r) fragment -> b:(;r) rbytes{b = Payload(ki,r,f)}
+
+// We use this function for ideal decryption by table lookup,
+// as the range after decryption is usually wider than the one used for encryption.
+// (Note that by design the encryption ranges are *not* authenticated).
+val widen: e:succEpoch -> r0:range -> f0:(;e,r0)fragment ->
+    f1:(;e,RangeClass(e,r0))fragment{
+    Payload(e,r0,f0) = Payload(e,RangeClass(e,r0),f1) /\
+    !s. Sent(e,s,r0,f0) => Sent(e,s,RangeClass(e,r0),f1)}
+
+// injectivity of data-fragment (follows from linearity of streams)
+private theorem !ki,s,r1,r2,f1,f2.
+  DeltaFragment(ki,s,r1,f1) /\ DeltaFragment(ki,s,r2,f2) => (f1 = f2)

@@ -1,0 +1,106 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module LHAE
+
+open Bytes
+open Error
+open TLSInfo
+open Range
+
+open TLSConstants
+
+type cipher = b:bytes{Length(b) <= max_TLSCipher_fragment_length}
+(* no need to be more precise on the length *)
+
+private type (;ki:epoch) LHAEKey =
+    | MtEK of ka:(;ki)MAC.key * ke:(;ki)ENC.state // {MtEKey(ki,(ka,ke))}
+    | MACOnlyK of (;ki) MAC.key
+(*  | GCM of ke:(;ki:AENC.state)  *)
+
+function val LHAESize: ki:epoch -> nat
+private definition !ki,si,enc,mac. si = EpochSI(ki) =>
+	(( CipherSuiteAuthEncAlg(si.cipher_suite,si.protocol_version) = MACOnly(mac) =>
+	  LHAESize(ki) = MacSize(mac) ) /\
+	 ( CipherSuiteAuthEncAlg(si.cipher_suite,si.protocol_version) = MtE(enc,mac) =>
+	  LHAESize(ki) = MacSize(mac) +
+					    EncKeySize(enc) +
+					    Range.IVSize(ki) ))
+
+val GEN:    ki:succEpoch     -> encryptor:(;ki)LHAEKey * decryptor:(;ki)LHAEKey
+val COERCE: ki:succEpoch{not Auth(ki)} -> b:bytes{Length(b) = LHAESize(ki)} -> (;ki)LHAEKey
+val LEAK:   ki:succEpoch{not Auth(ki)} -> (;ki)LHAEKey -> b:bytes
+
+private val mteKey: ki:epoch -> (;ki) MAC.key -> (;ki) ENC.state -> (;ki) LHAEKey
+
+private assume !e,si. si = EpochSI(e) =>
+	( (si.protocol_version = SSL_3p0 \/ si.protocol_version = TLS_1p0) => IVSize(e) = 0 ) /\
+	( (si.protocol_version = TLS_1p1 \/ si.protocol_version = TLS_1p2) =>
+	   IVSize(e) = EncAlgBlockSize(CipherSuiteENCAlg(si.cipher_suite,si.protocol_version)) )
+
+// We have two variants for encryption and decryption:
+// the first (primed) is concrete; the second is idealized at safe indexes,
+// using either #ideal_F (filtering out non-cipher) or #ideal (decrypting just by lookup)
+
+predicate ENCrypted of e:epoch * ad:(;e)LHAEPlain.adata * cipher
+
+private definition !e,ad,c.
+  ENCrypted(e,ad,c) <=> ?p'. ENC.ENCrypted(e,ad,c,p')
+
+ask !e,ad,c. ( Safe(e) => ENCrypted(e,ad,c) ) => (Safe(e) => ?p. ENC.ENCrypted(e,ad,c,p))
+
+val encrypt': ki:succEpoch -> (;ki) LHAEKey -> ad:(;ki)LHAEPlain.adata ->
+  rg:range -> p:(;ki,ad,rg) LHAEPlain.plain ->
+  ((;ki) LHAEKey * c:cipher){Length(c) = TargetLength(ki,rg) /\
+                             (Safe(ki) => ENCrypted(ki,ad,c))}
+
+val encrypt : ki:succEpoch -> (;ki) LHAEKey -> ad:(;ki)LHAEPlain.adata ->
+  rg:range -> p:(;ki,ad,rg) LHAEPlain.plain ->
+  ((;ki) LHAEKey * c:cipher){Length(c) = TargetLength(ki,rg) /\
+                             (Safe(ki) => ENCrypted(ki,ad,c))}
+
+type entry =
+  ki:succEpoch * ad:(;ki) LHAEPlain.adata * rg:range *
+  p:(;ki,ad,rg) LHAEPlain.plain * c:ENC.cipher {ENCrypted(ki,ad,c)}
+private val log: entry list ref
+private val cmem: ki:succEpoch -> ad:(;ki)LHAEPlain.adata -> c:cipher ->
+  entry list -> res:(r:range * (;ki,ad,r)LHAEPlain.plain) option {
+    ( !rg,p. res = Some ((rg,p)) => (ENCrypted(ki,ad,c) /\ rg = CipherRangeClass(ki,Length(c))) ) /\
+	( res = None => not ENCrypted(ki,ad,c) )}
+
+val decrypt': ki:succEpoch -> k:(;ki) LHAEKey -> ad:(;ki)LHAEPlain.adata ->
+  c:cipher{Safe(ki) => ENCrypted(ki,ad,c)} -> res:
+  ( (
+    (;ki) LHAEKey *
+    rg:range *
+    p:(;ki,ad,rg) LHAEPlain.plain) {rg = CipherRangeClass(ki,Length(c))} ) Result
+
+// { (* partial functional correctness when decrypting what we encrypted *)
+//   !pl,p,tag,rg.
+//	(    Length(c) = EncryptedLength(ki,rg)
+//	  /\ MACed(e,ad,pl,tag) // nb Encode.MACed has extra args.
+//     /\ Encoded(e,ad,pl,tag,p)
+//     /\ ENCrypted(e,Length(c),StateID(e,Encryptor(k)),p,c)
+//   => ?k',r'. res = Correct((k',r',pl)) }
+
+val decrypt: ki:succEpoch -> (;ki) LHAEKey -> ad:(;ki)LHAEPlain.adata ->
+  c:cipher -> res:
+  ( ((;ki) LHAEKey *  rg:range * (;ki,ad,rg) LHAEPlain.plain)
+     {rg = CipherRangeClass(ki,Length(c))}
+  ) Result
+   {
+    (Safe(ki) =>
+        (   (!k,r,p. res = Correct((k,r,p)) => ENCrypted(ki,ad,c))
+	 /\ (ENCrypted(ki,ad,c) => (?p,k,r'. res = Correct((k,r',p))))
+		))}
+// The last two lines are equivalent to (but easier to verify than)
+// !p. CTXT(ki,ad,p,c) <=> (?k,r. res = Correct((k,r,p)))

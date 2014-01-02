@@ -1,0 +1,36 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module DH
+
+open Bytes
+open DHGroup
+
+// "Strong" parameter generation used by compliant servers,
+// formally a precondition for signing them with an honest key.
+predicate val PP: p:p * g:(;p) g -> bool
+
+//#begin-abstraction
+type (;p:p,g:(;p)g,gx:(;p)elt) secret
+//#end-abstraction
+
+// the RFCs are vague about best practices for ppgen
+val gen_pp:     unit -> p:p * g:(;p) g {PP(p,g)}
+val default_pp: unit -> p:p * g:(;p) g {PP(p,g)}
+
+predicate HonestExponent of p:p * g:(;p)g * gx:(;p)elt
+val genKey: p:p -> g: (;p) g -> gx:(;p) elt * (;p,g,gx) secret{
+  HonestExponent(p,g,gx)}
+
+val exp: p:p -> g:(;p)g -> gx:(;p) elt -> gy:(;p) elt -> x:(;p,g,gx) secret -> res:(;p,g,gx,gy) CRE.dhpms{
+  HonestExponent(p,g,gx) /\ HonestExponent(p,g,gy) =>
+    TLSInfo.HonestDHPMS(p,g,gx,gy)}

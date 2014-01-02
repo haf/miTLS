@@ -1,0 +1,84 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module UTLS
+
+open Error
+open Bytes
+open TLSInfo
+open DataStream
+open Dispatch
+
+(* ------------------------------------------------------------------------ *)
+type rawfd   = Tcp.NetworkStream
+type fd      = int
+type queryhd = int
+
+(* ------------------------------------------------------------------------ *)
+val EI_BADHANDLE  : i:int{i = 0-1}
+val EI_BADCERTIDX : i:int{i = 0-2}
+val EI_READERROR  : i:int{i = 0-3}
+val EI_CLOSE      : i:int{i = 0-4}
+val EI_FATAL      : i:int{i = 0-5}
+val EI_WARNING    : i:int{i = 0-6}
+val EI_CERTQUERY  : i:int{i = 0-7}
+val EI_HANDSHAKEN : i:int{i = 0-8}
+val EI_DONTWRITE  : i:int{i = 0-9}
+val EI_WRITEERROR : i:int{i = 0-10}
+val EI_MUSTREAD   : i:int{i = 0-11}
+val EI_HSONGOING  : i:int{i = 0-12}
+
+(* ------------------------------------------------------------------------ *)
+private type handleinfo = {
+    conn     : Connection;
+	canwrite : bool;
+}
+
+predicate CanWriteP of bool * Connection
+
+definition !b, c. (b = true => CanWrite(CnInfo(c))) => CanWriteP(b, c)
+definition !b, c. CanWriteP(b, c) => (b = true => CanWrite(CnInfo(c)))
+
+private type Phandleinfo = h:handleinfo{ CanWriteP(h.canwrite, h.conn) }
+
+private type fdmap = (fd * Phandleinfo) list
+
+(* ------------------------------------------------------------------------ *)
+private val handleinfo_of_conn : Connection -> Phandleinfo
+
+(* ------------------------------------------------------------------------ *)
+private val fds : fdmap ref
+private val fdc : int ref
+
+private val new_fd : Connection -> fd
+
+private val unbind_fd_r : fd -> fdmap -> fdmap
+private val unbind_fd   : fd -> unit
+
+private val connection_of_fd_r : fd -> fdmap -> Phandleinfo option
+private val connection_of_fd   : fd -> Phandleinfo option
+
+private val update_fd_connection_r : fd -> b:bool -> c:Connection{CanWriteP(b, c)} -> fdmap -> fdmap
+private val update_fd_connection   : fd -> b:bool -> c:Connection{CanWriteP(b, c)} -> unit
+
+(* ------------------------------------------------------------------------ *)
+private val mkDelta : c:Connection -> b:bytes ->
+  (;ConnectionEpochOut(c), CnStream_o(c), (Length(b), Length(b))) delta
+
+(* ------------------------------------------------------------------------ *)
+val canwrite : fd -> int
+val read     : fd -> int * bytes
+val write    : fd -> bytes -> int
+val shutdown : fd -> unit
+
+val connect          : rawfd -> config -> fd
+val accept_connected : rawfd -> config -> fd

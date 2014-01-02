@@ -1,0 +1,96 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module DataStream
+
+(* Application-level bytes streams exchanged over TLS;            *)
+(* depending on the safety of their indexes,                      *)
+(* these streams are treated abstractly by our TLS implementation *)
+
+open TLSInfo
+open Bytes
+open Error
+open Range
+
+/// Auxiliary functions for ranges
+
+private val min: a:nat -> b:nat -> c:nat{(a<=b /\ c=a) \/ (a>b /\ c=b)}
+private val max: a:nat -> b:nat -> c:nat{(a>=b /\ c=a) \/ (a<b /\ c=b)}
+
+val splitRange: ki:succEpoch -> r:range -> (r0:range * r1:range){r = Sum(r0,r1)}
+
+/// Bytestreams
+
+// we communicate deltas indexed by all preceding bytes on the stream.
+// TLS guarantees abstraction for every delta with a safe index;
+// this is the main basis for application-level integrity and secrecy
+
+// used only as a ghost index:
+// streams have no destructors, so they do not leak secrets
+// they are used abstractly by TLS, except that
+// their logical definition is needed for authentication in application code.
+private type (;ki:epoch) stream = {sb:bytes list}
+
+// the implementation of this type is application-specific
+// but it must provide the following functions to TLS
+private type (;ki:epoch, h:(;ki)stream, r:range) delta = {contents: (;r) rbytes}
+
+function val Payload: e:epoch * s:(;e)stream * r:range * (;e,s,r)delta -> 'a // (;r)rbytes
+private definition !e,s,r,d. Payload(e,s,r,d) = d.contents
+
+function val EmptyStream: e:epoch -> (;e)stream
+private definition !e. EmptyStream(e) = {sb = []}
+
+function val ExtendStream: 'a * 'b * 'c * 'd -> 'e
+private definition !ki,s,r,d. ExtendStream(ki,s,r,d) = {sb = d.contents :: s.sb }
+
+function val StreamBytes: e:epoch * (;e)stream -> bytes
+private definition !e,s,h,t.
+ (s.sb = []   /\ StreamBytes(e,s) = [||]) \/
+ (s.sb = h::t /\ StreamBytes(e,s) = (StreamBytes(e,{sb=t}) @| h))
+
+ask !e. StreamBytes(e,EmptyStream(e)) = [||]
+ask !e,s,r,d. StreamBytes(e,ExtendStream(e,s,r,d)) = ( StreamBytes(e,s) @| Payload(e,s,r,d) )
+
+// The following two functions are
+// used only by the application.
+// They are never called from TLS.
+val createDelta:
+  ki:epoch -> s:(;ki) stream -> r:range ->
+  b:(;r) rbytes -> c: (;ki,s,r) delta
+val deltaBytes:
+  ki:epoch -> s:(;ki) stream -> r:range ->
+  c: (;ki,s,r) delta -> b:(;r) rbytes
+
+// used by TLS
+val init: e:epoch -> s:(;e)stream{s=EmptyStream(e)}
+val append:
+  ki:epoch -> s: (;ki) stream -> r:range ->
+  d:(;ki,s,r) delta -> s':(;ki) stream{s' = ExtendStream(ki,s,r,d)}
+
+val deltaPlain:
+  ki:epoch{not Auth(ki)} -> s:(;ki) stream -> r:range ->
+  b:(;r) rbytes -> d: (;ki,s,r) delta {b = Payload(ki,s,r,d)}
+val deltaRepr:
+  ki:epoch{not Safe(ki)} -> s:(;ki) stream -> r:range ->
+  d: (;ki,s,r) delta -> b:(;r) rbytes{b = Payload(ki,s,r,d)}
+
+val split: ki:epoch -> s:(;ki) stream ->
+  r0:range -> r1:range -> d:(;ki,s,Sum(r0,r1)) delta ->
+  (d0:(;ki,s,r0) delta * d1:(;ki,ExtendStream(ki,s,r0,d0),r1) delta){
+	Payload(ki,s,Sum(r0,r1),d) =
+		Payload(ki,s,r0,d0) @| Payload(ki,ExtendStream(ki,s,r0,d0),r1,d1)
+  }
+
+val widen: ki:epoch -> s:(;ki) stream ->
+  r0:range -> r1:range{SubRange(r0,r1)} -> d0:(;ki,s,r0) delta ->
+  d1:(;ki,s,r1) delta{Payload(ki,s,r0,d0) = Payload(ki,s,r1,d1)}

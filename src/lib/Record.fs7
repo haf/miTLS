@@ -1,0 +1,69 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module Record
+
+/// Implements stateful AE on top of LHAE,
+/// managing sequence numbers and the binary record format
+
+open Bytes
+open Error
+open TLSInfo
+open TLSConstants
+open Range
+
+private type (;ki:epoch,rw:StatefulLHAE.rw) ConnectionState =
+	| NullState
+	| SomeState of h:(;ki)TLSFragment.history * st:(;ki,rw)StatefulLHAE.state{h = StatefulPlain.Multiplexed(ki,StatefulLHAE.History(ki,rw,st))}
+
+val someState: ki:epoch -> rw:StatefulLHAE.rw -> h:(;ki) TLSFragment.history -> st: (;ki,rw) StatefulLHAE.state{h = StatefulPlain.Multiplexed(ki,StatefulLHAE.History(ki,rw,st))} -> cs:(;ki,rw) ConnectionState{cs = SomeState (h,st)}
+
+function val History: ki:epoch * rw:StatefulLHAE.rw * (;ki,rw) ConnectionState -> 'a
+private definition !ki,rw,h,s. History(ki,rw,SomeState(h,s)) = h
+private definition !ki,rw,s.   History(ki,rw,NullState) = TLSFragment.EmptyHistory(ki)
+//private definition !ki,ki',h,h'. TLSFragment.EmptyHistory(ki,h) /\ TLSFragment.EmptyHistory(ki',h') => h = h'
+
+type (;ki:epoch) sendState = (;ki,StatefulLHAE.WriterState) ConnectionState
+type (;ki:epoch) recvState = (;ki,StatefulLHAE.ReaderState) ConnectionState
+
+val initConnState: ki:epoch -> rw:StatefulLHAE.rw ->
+	state:(;ki,rw) StatefulLHAE.state{StatefulLHAE.History(ki,rw,state) = StatefulPlain.EmptyHistory(ki)} ->
+	cs:(;ki,rw) ConnectionState{History(ki,rw,cs) = TLSFragment.EmptyHistory(ki)}
+val nullConnState: ki:epoch -> rw:StatefulLHAE.rw ->
+	cs:(;ki,rw) ConnectionState{History(ki,rw,cs) = TLSFragment.EmptyHistory(ki)}
+
+private val makePacket: ContentType -> ProtocolVersion -> bytes -> bytes
+
+val headerLength: b:bytes{Length(b) = 5} -> (n:nat{n>0 /\ n <= max_TLSCipher_fragment_length}) Result
+
+private val parseHeader: b:bytes{Length(b) = 5} ->
+	((ContentType * ProtocolVersion * n:nat){n>0 /\ n <= max_TLSCipher_fragment_length}) Result
+
+val recordPacketOut: ki:epoch ->
+                     ss:(;ki) sendState -> pv:ProtocolVersion ->
+                     rg:range -> ct:ContentType ->
+                     f:(;ki,ct,History(ki,StatefulLHAE.WriterState,ss),rg) TLSFragment.plain ->
+                     (ss':(;ki) sendState * wire:bytes){
+						Auth(ki) => (History(ki,StatefulLHAE.WriterState,ss') = TLSFragment.ExtendHistory(ki,ct,History(ki,StatefulLHAE.WriterState,ss),rg,f))}
+
+val recordPacketIn : ki:epoch ->
+                     rs:(;ki) recvState ->
+                     wire:bytes{Length(wire) >= 5} ->
+                     res:(rs':(;ki)recvState *
+                        ct:ContentType * pv:ProtocolVersion *
+                        rg:range *
+                        f:(;ki,ct,History(ki,StatefulLHAE.ReaderState,rs),rg) TLSFragment.plain) Result{
+                       !rs',ct,pv,rg,f. (res = Correct ((rs',ct,pv,rg,f)) /\ Auth(ki)) =>
+                         (History(ki,StatefulLHAE.ReaderState,rs') = TLSFragment.ExtendHistory(ki,ct,History(ki,StatefulLHAE.ReaderState,rs),rg,f))}
+
+val history: ki:epoch -> rw:StatefulLHAE.rw -> s:(;ki,rw) ConnectionState ->
+	h:(;ki)TLSFragment.history{h=History(ki,rw,s)}

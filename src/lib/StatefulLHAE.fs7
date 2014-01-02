@@ -1,0 +1,76 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module StatefulLHAE
+
+open Error
+open Bytes
+open TLSInfo
+open Range
+
+type rw =
+	| ReaderState
+	| WriterState
+
+private type (;ki:epoch,rw:rw) state = {
+  key    : (;ki) LHAE.LHAEKey;         // possibly stateful
+  history: (;ki) StatefulPlain.history // ghost state, except for the sequence number
+}
+
+function val History: e:epoch * rw:rw * (;e,rw)state -> 'a //(;e)StatefulPlain.history
+private definition !e,rw,s. History(e,rw,s) = s.history
+
+type (;ki:epoch) reader = r:(;ki,ReaderState) state
+type (;ki:epoch) writer = w:(;ki,WriterState) state
+
+val GEN:    ki:succEpoch{Safe(ki)}     -> (;ki)reader * (;ki)writer
+val COERCE: ki:succEpoch{not Auth(ki)} -> rw:rw -> b:bytes{Length(b)=LHAE.LHAESize(ki)} -> (;ki,rw)state
+val LEAK:   ki:succEpoch{not Auth(ki)} -> rw:rw -> (;ki,rw)state -> b:bytes
+
+val history: ki:epoch -> rw:rw -> s:(;ki,rw) state -> h:(;ki)StatefulPlain.history{h=History(ki,rw,s)}
+
+// Ideally,
+// the writer maintains a table (ki, h, ad, range, fragment, cipher) {...} [details?]
+// when SAFE(ki), the writer uses 0s instead of the actual fragment
+// when AUTH(ki), the reader decrypts by table lookup
+// turning forgeries into errors; retrieving the "right" history index; returning the concrete decrypted range
+
+type cipher = LHAE.cipher
+
+predicate ENCrypted of e:epoch * h:(;e)StatefulPlain.history * ad:(;e)StatefulPlain.adata * cipher
+private definition !e,h,ad,c.
+  ENCrypted(e,h,ad,c) <=> LHAE.ENCrypted(e,LHAEPlain.MakeAD(e,h,ad),c)
+
+val encrypt: ki:succEpoch ->
+  wr:(;ki) writer ->
+  ad:(;ki) StatefulPlain.adata ->
+  rg:range ->
+  f: (;ki,ad,History(ki,WriterState,wr),rg) StatefulPlain.plain ->
+  (wr':(;ki) writer * c:cipher){
+    History(ki,WriterState,wr') =
+      StatefulPlain.ExtendHistory(ki,ad,History(ki,WriterState,wr),rg,f)
+/\    (Safe(ki) => ENCrypted(ki,History(ki,WriterState,wr),ad,c))}
+
+val decrypt: ki:succEpoch ->
+  rd:(;ki) reader ->
+  ad:(;ki) StatefulPlain.adata ->
+  c:cipher ->
+  res:((;ki) reader * rg:range * (;ki,ad,History(ki,ReaderState,rd),rg) StatefulPlain.plain) Result
+  { !nrd,rg,f. res = Correct((nrd,rg,f)) =>
+               (   History(ki,ReaderState,nrd) =
+                   StatefulPlain.ExtendHistory(ki,ad,History(ki,ReaderState,rd),rg,f) /\
+                   rg = CipherRangeClass(ki,Length(c)) /\
+ 	         (Safe(ki) =>
+				( (!nrd,rg,f. res = Correct((nrd,rg,f)) => ENCrypted(ki,History(ki,ReaderState,rd),ad,c)) // /\
+				//  (!rg,p. ENCrypted(ki,rd,ad,rg,StatefulPlain.Payload(ki,ad,rg,p),c) => (?nrd,rg. res = Correct((nrd,rg,p))))
+				)
+			 ) ) }

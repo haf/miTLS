@@ -1,0 +1,23 @@
+-*- outline-mode -*-
+
+* TLS Library (lib/ TLSSharp/)
+
+** Main authors
+*** Alfredo Pironti
+** Contributors
+*** Karthikeyan Bhargavan
+*** Cédric Fournet
+*** Markulf Kohlweiss
+*** Pierre-Yves Strub
+
+* Low-level cryptograhy library (CoreCrypto/)
+
+** Main authors
+***  Pierre-Yves Strub
+
+* HTTP server (HttpServer/) + Top-level applications
+
+** Main authors
+***  Pierre-Yves Strub
+** Contributors
+*** Alfredo Pironti

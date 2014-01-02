@@ -1,0 +1,13 @@
+# -*- Makefile -*-
+
+# --------------------------------------------------------------------
+fsc = fsharpc
+csc = gmcs
+
+csflags += --define:mono
+fsflags += --define:mono -r Mono.Data.Sqlite.dll
+
+# --------------------------------------------------------------------
+# TOOLS FOR VERIFICATION
+f7       = ../../../$(TOP)/bin/f7.exe
+override f7flags += -z3exe ../../../$(TOP)/bin/z3.exe

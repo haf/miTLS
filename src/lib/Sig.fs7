@@ -1,0 +1,80 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module Sig
+
+open Bytes
+open TLSConstants
+
+// TLS uses three signatures algorithms, together with hash algorithm.
+// We verify TLS security relative to those *combinations* of algorithms
+// that provide CMA-security, as specified in this interface.
+// However, none of them are CMA-secure in the standard model.
+
+// This interface is adapted from the one described in CCS'11.
+// Its implementation is trusted, not verified.
+
+//*********************** Cryptographic agility ****************************
+
+// note that the same key may be used with different hashes.
+// so we require some joint security assumption for them
+
+// TLS 1.2 provides explicit support for it:
+// [1.2] - Substantial cleanup to the client's and server's ability to
+//         specify which hash and signature algorithms they will accept.
+//         Note that this also relaxes some of the constraints on signature
+//         and hash algorithms from previous versions of TLS.
+
+// implements SignatureAndHashAlgorithm, with fewer values for hashAlg
+type alg   = sigAlg * hashAlg
+
+type text = bytes
+type (;a:alg) sigv = bytes
+
+  // with TLS 1.2, this explicitly contains a; see DigitallySigned struct
+
+// Summary of the extension logic for the client:
+// - specific to TLS 1.2
+// - cs indicates sigAlg but not hashAlg, but "this is historical"
+// - extension indicates supported algs (not necessarily following the cs)
+// - no extension == client supports exactly the default alg
+
+// let defaultAlg cs =
+//   let a =
+//     match cs with
+//     | RSA | DH_RSA | DHE_RSA | RSA_PSK (* | ECDH_RSA | ECDHE_RSA *) -> RSA
+//     | DH_DSS | DHE_DSS                                              -> DSA
+//   (*| ECDH_ECDSA | ECDHE_ECDSA                                      -> ECDSA in
+//   (a, SHA1)
+
+//********************** Ideal Functionality for Signing ***********************
+
+//#begin-abstraction
+type (;a:alg) skey
+//#end-abstraction
+type (;a:alg) pkey
+
+function val PK: 'a -> 'b // a:alg * (;a)skey -> vkey
+predicate Msg of a:alg * (;a)pkey * text
+predicate Honest of a:alg * (;a) pkey
+predicate Strong of alg
+
+val gen:     a:alg -> pk:(;a) pkey * sk:(;a) skey { pk = PK(sk) }
+val sign:    a:alg -> sk:(;a) skey -> t:text{Msg(a,PK(sk),t)} -> (;a) sigv
+val verify:  a:alg -> pk:(;a) pkey -> t:text -> m:(;a) sigv ->
+  b:bool {(b=true /\ Strong(a) /\ Honest(a,pk)) => Msg(a,pk,t)}
+
+val pkey:    a:alg -> CoreSig.sigpkey -> p:(;a) pkey
+val pkey_repr:  a:alg -> p:(;a) pkey -> CoreSig.sigpkey
+
+val coerce:  a:alg -> p:(;a) pkey{not Honest(a,p)} -> CoreSig.sigskey -> s:(;a)skey{p = PK(s)}
+val leak:    a:alg -> s:(;a) skey{not Honest(a,PK(s))} -> CoreSig.sigskey

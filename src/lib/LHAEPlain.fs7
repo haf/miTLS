@@ -1,0 +1,80 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module LHAEPlain
+open Bytes
+open TLSConstants
+open TLSInfo
+open Range
+
+//------------------------------------------------------------------------------------------------------
+// `Plain' interface towards LHAE
+//------------------------------------------------------------------------------------------------------
+
+// We define payloads and additional data from those of StatefulPlain,
+// adding an 8-byte sequence number to additional data.
+type (;e:epoch) adata = (b:bytes){Length(b) = 8 + StatefulPlain.ADLength(e)}
+
+function val MakeAD:  e:epoch * (;e)StatefulPlain.history * (;e)StatefulPlain.adata -> 'a // (;e)adata
+private definition !e,h,ad. MakeAD(e,h,ad) = IntBytes(8,StatefulPlain.SeqN(e,h)) @| ad
+function val ParseAD: e:epoch * (;e)adata -> 'a //(;e)StatefulPlain.adata
+private definition !e,b,ad. Length(b) = 8 => ParseAD(e,b@|ad) = ad
+function val SeqN: e:epoch * (;e)adata -> nat
+private definition !e,sn,ad. SeqN(e,IntBytes(8,sn)@|ad) = sn
+
+ask !e,h,ad. ParseAD(e,MakeAD(e,h,ad)) = ad
+
+val makeAD:  e:epoch -> h:(;e)StatefulPlain.history -> ad:(;e)StatefulPlain.adata -> b:(;e)adata{b=MakeAD(e,h,ad)}
+val parseAD: e:epoch -> b:(;e)adata -> ad:(;e)StatefulPlain.adata{ad = ParseAD(e,b)}
+
+private type (;e:epoch,ad:(;e)adata,r:range)fragment = {contents: (;e,ParseAD(e,ad),r)StatefulPlain.fragment}
+
+function val Payload: e:epoch * ad:(;e)adata * r:range * (;e,ad,r)fragment -> 'a // (;r)rbytes
+private definition !e,ad,r,f,b.
+	Payload(e,ad,r,f) = StatefulPlain.Payload(e,ParseAD(e,ad),r,f.contents)
+
+predicate LHAESent of e:epoch * ad:(;e)adata * r:range * (;e,ad,r)fragment
+type (;e:epoch,ad:(;e)adata,r:range) plain = f:(;e,ad,r)fragment{ Auth(e) => LHAESent(e,ad,r,f) }
+val plain: e:succEpoch{not Auth(e)} -> ad:(;e)adata -> r:range -> b:(;r)rbytes -> p:(;e,ad,r) plain {b = Payload(e,ad,r,p)}
+val repr:  e:succEpoch{not Safe(e)} -> ad:(;e)adata -> r:range -> p:(;e,ad,r) plain -> b:(;r)rbytes {b = Payload(e,ad,r,p)}
+private val reprFragment:  e:succEpoch{not Safe(e)} -> ad:(;e)adata -> r:range -> f:(;e,ad,r) fragment -> b:(;r)rbytes {b = Payload(e,ad,r,f)}
+
+val widen: e:succEpoch -> ad:(;e)adata -> r:range ->
+  f:(;e,ad,r)plain ->
+  f':(;e,ad,RangeClass(e,r))plain{
+    Payload(e,ad,r,f) = Payload(e,ad,RangeClass(e,r),f')}
+
+private definition !e,lad,r,f.
+  LHAESent(e,lad,r,f) <=>
+  (?had,sn,ph. lad = MakeAD(e,(sn,ph),had) /\ StatefulPlain.StAESent(e,had,(sn,ph),r,f.contents))
+
+(*
+private ask !e,r,f,lad. (Auth(e) /\ (?had,sn,ph. MakeAD(e,(sn,ph),had) = lad /\ StatefulPlain.StAESent(e,had,(sn,ph),r,f.contents)) ) =>
+                        (!had', sn', ph'. MakeAD(e,(sn',ph'),had') = lad /\ StatefulPlain.StAEHistory(e,ph') /\ StatefulPlain.HLength(e,ph') = sn' => StatefulPlain.StAESent(e,had',(sn',ph'),r,f.contents))
+
+ask !e,ad,sn,ph,ad',r,x. (ad = MakeAD(e,(sn,ph),ad') /\ StatefulPlain.StAESent(e,ad',(sn,ph),r,x.contents)) => LHAESent(e,ad,r,x)
+
+ask !e,ad,h,h',ad',ad''. ad = MakeAD(e,h,ad') /\ ad = MakeAD(e,h',ad'') =>
+    (StatefulPlain.SeqN(e,h) = StatefulPlain.SeqN(e,h') /\ ad' = ad'')
+*)
+
+(* These coercions are used only in StatefulLHAE.fs;
+   they are not part of the "plain" interface to LHAE. *)
+
+function val StAEToLHAE: 'a -> 'b // StatefulPlain.plain -> plain
+private definition !p. StAEToLHAE(p) = {contents = p}
+
+val StatefulPlainToLHAEPlain: e:epoch -> h:(;e)StatefulPlain.history -> ad:(;e)StatefulPlain.adata -> r:range ->
+  f:(;e,ad,h,r)StatefulPlain.plain -> p:(;e,MakeAD(e,h,ad),r)plain{p = StAEToLHAE(f)}
+
+val LHAEPlainToStatefulPlain: e:epoch -> h:(;e)StatefulPlain.history -> ad:(;e)StatefulPlain.adata -> r:range ->
+  p:(;e,MakeAD(e,h,ad),r)plain -> f:(;e,ad,h,r)StatefulPlain.plain{p = StAEToLHAE(f)}

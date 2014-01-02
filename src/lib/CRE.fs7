@@ -1,0 +1,48 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module CRE
+
+open Bytes
+open TLSConstants
+open TLSInfo
+open DHGroup
+
+type rsarepr = (;48)lbytes
+
+//#begin-abstractionRSA
+private type (;pk:RSAKey.pk,pv:ProtocolVersion) rsapms = {rsapms:rsarepr}
+predicate GeneratedRSAPMS of pk:RSAKey.pk * pv:ProtocolVersion * (;pk,pv)rsapms
+
+val genRSA: pk:RSAKey.pk -> pv:ProtocolVersion -> pms:(;pk,pv)rsapms{GeneratedRSAPMS(pk,pv,pms)}
+val coerceRSA: pk:RSAKey.pk -> pv:ProtocolVersion {not SafeRSAPMS(pk,pv)}-> bytes -> (;pk,pv)rsapms
+val leakRSA: pk:RSAKey.pk -> pv:ProtocolVersion {not SafeRSAPMS(pk,pv)}-> (;pk,pv)rsapms -> bytes
+//#end-abstractionRSA
+
+//#begin-abstractionDH
+private type (;p:p, g:(;p) g, gx:(;p) elt, gy:(;p) elt) dhpms = {dhpms: (;p) elt} // strong secret when (p,g), gx, and gy have been honestly generated
+
+val sampleDH:   p:p -> g:(;p)g -> gx:(;p)elt -> gy:(;p)elt ->            (;p,g,gx,gy) dhpms
+val coerceDH:   p:p -> g:(;p)g -> gx:(;p)elt -> gy:(;p)elt {not SafeDHPMS(p,g,gx,gy)}-> (;p)elt -> (;p,g,gx,gy) dhpms
+//#end-abstractionDH
+
+val prfSmoothRSA:
+    si:SessionInfo ->
+    pv:ProtocolVersion ->
+    pms: (;Cert.RSAPKCert(si.serverID),pv) rsapms ->
+    (;si) PRF.masterSecret
+
+val prfSmoothDHE:
+    si:SessionInfo ->
+    p:DHGroup.p -> g:(;p)DHGroup.g -> gx:(;p)DHGroup.elt -> gy:(;p)DHGroup.elt ->
+    pms: (;p,g,gx,gy)dhpms ->
+    (;si) PRF.masterSecret

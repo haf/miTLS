@@ -1,0 +1,125 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module Encode
+
+(* The "plain" file for CPA encryption (module ENC) *)
+(* provided by LHAE, implementing LHAEPlain @| MAC @| padding when using MtE *)
+
+open Bytes
+open Error
+open TLSInfo
+open TLSConstants
+open Range
+
+//------------------------------------------------------------------------------------------------------
+// Interface towards ENC (abstract)
+//------------------------------------------------------------------------------------------------------
+
+// the result of decrypting & decoding, with an abstract type for secrecy
+private type (;e:epoch,ad:(;e)LHAEPlain.adata,rg:range) plain =
+	{ plain: (;e,ad,rg)LHAEPlain.plain;
+	  tag  : (;e)MAC.tag;
+	  ok   : b:bool { CipherSuiteENCAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = Stream_RC4_128 => b = true }
+	  (* true iff decoding succeeded; always true with RC4. *) }
+
+function val PlainLength: epoch * nat -> nat
+definition !e,tlen.
+  tlen >= IVSize(e) =>
+  PlainLength(e,tlen) = tlen - IVSize(e)
+
+//------------------------------------------------------------------------------------------------------
+// Interface towards LHAE
+//------------------------------------------------------------------------------------------------------
+
+private val zeros: r:range -> (;r)rbytes
+
+val payload: e:succEpoch -> r:range -> ad:(;e)LHAEPlain.adata ->
+  f:(;e,ad,r)LHAEPlain.plain ->
+  b:(;r) rbytes{ Safe(e) \/ b = LHAEPlain.Payload(e,ad,r,f) }
+
+// the MACed bytes, i.e. ad @| 2-byte length of payload @| payload
+
+function val MACPlain : 'a * 'b * 'c * 'd -> 'e
+private definition !e,r,ad,f. MACPlain(e,r,ad,f) = ad @| VLBytes(2,LHAEPlain.Payload(e,ad,r,f))
+val macPlain: e:succEpoch -> r:range ->
+  ad:(;e)LHAEPlain.adata ->
+  f:(;e,ad,r)LHAEPlain.plain -> b:bytes{ Safe(e) \/ b = MACPlain(e,r,ad,f) }
+
+predicate val Decoded: 'e * 'a * 'b -> bool
+
+val mac: e:succEpoch -> k:(;e) MAC.key ->
+  ad:(;e)LHAEPlain.adata -> rg:range ->
+  p:(;e,ad,rg)LHAEPlain.plain ->
+  (;e,ad,rg) plain
+
+val verify: e:succEpoch -> k:(;e) MAC.key ->
+  ad:(;e)LHAEPlain.adata ->
+  rg:range ->
+  ps:(;e,ad,rg) plain ->
+  res:(;e,ad,rg)LHAEPlain.plain Result
+
+predicate val Encoded: 'e * 'a * 'b * 'c * 'd -> bool
+
+private val pad: l:int { 0 < l /\ l <= 256 } -> b:bytes{Length(b) = l}
+
+val encode: e:succEpoch{not Safe(e) /\ (?alg,mac. CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(CBC_Stale(alg),mac) \/
+	  CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(CBC_Fresh(alg),mac))} ->
+    tlen:nat{tlen <= max_TLSCipher_fragment_length} -> rg:range{tlen = TargetLength(e,rg)} ->
+	ad:(;e) LHAEPlain.adata -> pl:(;e,ad,rg) LHAEPlain.plain -> tag:(;e) MAC.tag ->
+	(;PlainLength(e,tlen))lbytes
+val decode: e:succEpoch{not Auth(e) /\ (?alg,mac. CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(CBC_Stale(alg),mac) \/
+	  CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(CBC_Fresh(alg),mac))} ->
+	ad:(;e) LHAEPlain.adata -> rg:range ->
+	tlen:nat{tlen - IVSize(e) >= ( MacSize(CipherSuiteMACAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version)) + 1) /\
+	rg = CipherRangeClass(e,tlen)} ->
+	(;PlainLength(e,tlen))lbytes ->
+	ps:(;e,ad,rg)plain
+
+val encodeNoPad: e:succEpoch{not Safe(e) /\ (?mac. CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MACOnly(mac) \/
+	  CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(Stream_RC4_128,mac))} ->
+	tlen:nat{tlen <= max_TLSCipher_fragment_length} -> rg:range{tlen = TargetLength(e,rg)} ->
+	ad:(;e) LHAEPlain.adata -> (;e,ad,rg) LHAEPlain.plain -> (;e) MAC.tag ->
+	(;PlainLength(e,tlen))lbytes
+val decodeNoPad: e:succEpoch{not Auth(e) /\ (?mac. CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MACOnly(mac) \/
+	  CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(Stream_RC4_128,mac))} ->
+	ad:(;e) LHAEPlain.adata -> rg:range ->
+	tlen:nat{tlen >= MacSize(CipherSuiteMACAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version)) /\
+	rg = CipherRangeClass(e,tlen)} -> (;PlainLength(e,tlen))lbytes ->
+	(;e,ad,rg)plain
+
+function val MinTlen: e:epoch -> nat
+definition !e,mac,alg.
+    ((CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MACOnly(mac) \/
+	  CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(Stream_RC4_128,mac))
+	 => MinTlen(e) = MacSize(CipherSuiteMACAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version)) ) /\
+	((CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(CBC_Fresh(alg),mac) \/
+	  CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(CBC_Stale(alg),mac))
+	 => MinTlen(e) = MacSize(CipherSuiteMACAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version)) + 1 )
+
+val plain: e:succEpoch{not Auth(e)} ->
+		   ad:(;e)LHAEPlain.adata -> tlen:nat{tlen <= max_TLSCipher_fragment_length /\ tlen >= MinTlen(e)} ->
+           (;PlainLength(e,tlen))lbytes ->
+           (;e,ad,CipherRangeClass(e,tlen)) plain
+
+val repr:  e:succEpoch{not Safe(e)} ->
+  ad:(;e)LHAEPlain.adata -> rg:range ->
+  (;e,ad,rg) plain ->
+  (;PlainLength(e,TargetLength(e,rg)))lbytes{TargetLength(e,rg) <= max_TLSCipher_fragment_length}
+
+//------------------------------------------------------------------------------------------------------
+// Auxiliary definitions and assumptions for typing
+//------------------------------------------------------------------------------------------------------
+
+private assume !e,pl. MAC.Msg(e,pl) <=>
+     (Safe(e) \/ (?ad,r,f. Length(ad) = 8 + StatefulPlain.ADLength(e) /\
+	  pl = MACPlain(e,r,ad,f)))

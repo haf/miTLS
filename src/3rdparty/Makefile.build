@@ -1,0 +1,31 @@
+# -*- Makefile -*-
+
+# --------------------------------------------------------------------
+include ../Makefile.config
+
+dlls := BouncyCastle.Crypto
+
+ifeq ($(buildtype),unix)
+dlls += \
+	FSharp.PowerPack \
+	FSharp.PowerPack.Compatibility
+endif
+
+# --------------------------------------------------------------------
+.PHONY: all cope dist make.in
+
+all: copy
+
+copy: $(dlls:%=../bin/%.dll)
+	@true
+
+dist:
+	set -e; for i in $(dlls); do     \
+	  cp $$i.dll $(distdir); \
+	done
+
+make.in:
+	@true
+
+../bin/%.dll: %.dll
+	cp $*.dll ../bin
