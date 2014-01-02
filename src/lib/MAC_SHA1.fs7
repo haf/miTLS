@@ -22,26 +22,26 @@ open TLSInfo
 
 val a: a:macAlg{ a = MA_HMAC(SHA) } // symbolic constant
 
-type (;ki:succEpoch) keyrepr = k:bytes {Length(k) = MacSize(a)}
-private type (;ki:succEpoch) key = {k:(;ki) keyrepr}
+type (;ki:id) keyrepr = k:bytes {Length(k) = MacKeySize(a)}
+private type (;ki:id) key = {k:(;ki) keyrepr}
 
 type text = bytes
-predicate val Msg: epoch * text -> bool
+predicate val Msg: id * text -> bool
 
-type tag = m:bytes {Length(m) = MacSize(a)}
+type tag = m:bytes {Length(m) = MacKeySize(a)}
 
 val Mac:
-  ki:succEpoch -> (;ki) key ->
+  ki:id -> (;ki) key ->
   t:text {Msg(ki,t)} -> tag
 val Verify:
-  ki:succEpoch -> (;ki) key -> t:text ->
+  ki:id -> (;ki) key -> t:text ->
   tag -> b:bool { b=true => Msg(ki,t) }
 
 val GEN:
-  ki:succEpoch -> (;ki) key
+  ki:id -> (;ki) key
 
 (* typing the log for the ideal functionality *)
 
-private type entry = (ki:epoch * t:text * tag){Msg(ki,t)}
+type entry = (ki:id * t:text * tag){Msg(ki,t)}
 private val log: entry list ref
-private val tmem: ki:epoch -> t:text -> entry list -> b:bool{ b=true => Msg(ki,t) }
+private val tmem: ki:id -> t:text -> entry list -> b:bool{ b=true => Msg(ki,t) }

@@ -13,11 +13,16 @@
 module TLS
 
 open Error
+open TLSError
 open Bytes
 open TLSInfo
 open DataStream (* application-specific module *)
 open AppData
 open Dispatch
+
+// Some invariants ensuring our library never buffers user data
+type Connection = c:Dispatch.Connection{CnBuf_o(c) = None}
+type (;c:Connection) nextCn = c':Connection {NextCn(c,c')}
 
 type (;c:Connection) ioresult_i =
 | ReadError of alertDescription option * string
@@ -52,7 +57,7 @@ type (;c:Connection) ioresult_i =
 	/\ Rnd(c') = Rnd(c)
 	/\ Config(c') = Config(c)
 	/\ ConnectionEpochIn(c) = Pred(ConnectionEpochIn(c'))
-	/\ Bytes_i(c') = [||]
+	/\ Bytes_i(c') = B(empty_bytes)
 	/\ EvClose(CnInfo(c).id_in, Bytes_i(c))
 	/\ Handshake.Complete(CnInfo(c'),Config(c'))
 	/\ (
@@ -62,7 +67,7 @@ type (;c:Connection) ioresult_i =
 		)
 		\/
 		(Handshake.EvSentFinishedFirst(CnInfo(c'),false) /\
-			  Bytes_o(c') = [||]
+			  Bytes_o(c') = B(empty_bytes)
 		   /\ ConnectionEpochOut(c) = Pred(ConnectionEpochOut(c'))
 		)
 	   )
@@ -79,7 +84,7 @@ type (;c:Connection) ioresult_i =
 	/\ Config(c') = Config(c)
 	/\ ConnectionEpochIn(c') = ConnectionEpochIn(c)
 	/\ Bytes_i(c') = Bytes_i(c)
-	/\ Bytes_o(c') = [||]
+	/\ Bytes_o(c') = B(empty_bytes)
 	/\ ConnectionEpochOut(c) = Pred(ConnectionEpochOut(c'))
     }
 
@@ -103,7 +108,7 @@ type (;c:Connection,d:(;ConnectionEpochOut(c),CnStream_o(c)) msg_o) ioresult_o =
      /\ Config(c') = Config(c)
 	 /\ ConnectionEpochIn(c') = ConnectionEpochIn(c)
      /\ Bytes_i(c') = Bytes_i(c)
-	 /\ Bytes_o(c') = [||]
+	 /\ Bytes_o(c') = B(empty_bytes)
 	 /\ ConnectionEpochOut(c) = Pred(ConnectionEpochOut(c'))
 	}
 

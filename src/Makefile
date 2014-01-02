@@ -1,70 +1,66 @@
 # -*- Makefile -*-
 
 # --------------------------------------------------------------------
-version    ?= 0.1.1
+version    ?= 0.1.3-exp
 name        = miTLS
 distname    = $(name)-$(version)
 f7distname  = $(name)-f7-$(version)
 
-subdirs  += 3rdparty CoreCrypto DB lib TLSharp
-subdirs  += HttpServer echo rpc
-subdirs  += www-data
-
 TAR = tar --format=posix --owner=0 --group=0
+
+include Makefile.config
 
 .PHONY: all build make.in prepare-dist
 .PHONY: do-dist-check dist dist-check
 
+# --------------------------------------------------------------------
 all: build
 
+build = $(msbuild) /p:Configuration=$(1) tls.sln
+clean = $(msbuild) /v:minimal /p:Configuration=$(1) /t:Clean tls.sln
+
 build:
-	[ -d bin ] || mkdir bin
-	set -e; for d in $(subdirs); do $(MAKE) -f Makefile.build -C $$d; done
+	$(call build,Release)
 
-make.in:
-	set -e; for d in $(subdirs); do $(MAKE) -f Makefile.build -C $$d make.in; done
+clean:
+	$(call clean,Release)
+	$(call clean,Debug)
 
+dist-clean: clean
+	rm -f $(distname).tgz
+	rm -f $(f7distname).tgz
+
+# --------------------------------------------------------------------
 prepare-dist:
 	rm -rf $(distname) && mkdir $(distname)
 	rm -rf $(distname).tgz
-	set -e; for d in $(subdirs); do \
-	   mkdir $(distname)/$$d; \
-	   cp $$d/Makefile.build $(distname)/$$d; \
-	   $(MAKE) -f Makefile.build -C $$d distdir=../$(distname)/$$d dist; \
-	done
-	cp Makefile               $(distname)
-	cp Makefile.config        $(distname)
-	cp Makefile.config.cygwin $(distname)
-	cp Makefile.config.unix   $(distname)
-	cp README                 $(distname)
-	mkdir $(distname)/licenses && \
-	  cp licenses/*.txt $(distname)/licenses
-	find $(distname) -type f -exec chmod a-x '{}' \+
+	scripts/distribution $(distname) MANIFEST
+	find $(distname) \( -type f -a \! -name '*.dll' \) -exec chmod a-x '{}' \+	
+	chmod a+x $(distname)/scripts/*
 
 dist: prepare-dist
-	cp LICENSE AUTHORS $(distname)
 	if [ -x scripts/anonymize ]; then \
 	  find $(distname) \
 	    -type f \( -name '*.fs' -o -name '*.fsi' -o -name '*.fs7' \) \
 	    -exec scripts/anonymize \
-	      -m release -B -P -I ideal -I verify -c LICENSE.header '{}' \+; \
+	      -m release -B -P -I wsgi -I ideal -I verify \
+	      -c LICENSE.header '{}' \+; \
 	fi
 	$(TAR) -czf $(distname).tgz $(distname)
 	rm -rf $(distname)
 
 do-dist-check:
 	tar -xof $(distname).tgz
-	cd $(distname) && $(MAKE) && $(MAKE) dist
-	tar -C $(distname) -xof $(distname).tgz
-	tar -C $(distname) -df $(distname).tgz $(distname)
+	set -x; \
+	     $(MAKE) -C $(distname) \
+	  && $(MAKE) -C $(distname) dist \
+	  && mkdir $(distname)/dist1 $(distname)/dist2 \
+	  && ( cd $(distname)/dist1 && tar -xof ../$(distname).tgz ) \
+	  && ( cd $(distname)/dist2 && tar -xof ../../$(distname).tgz ) \
+	  && diff -rq $(distname)/dist1 $(distname)/dist2 \
+	  || exit 1
 	rm -rf $(distname)
-	@echo "$(distname).tgz is ready for distribution"
+	@echo "$(distname).tgz is ready for distribution" | \
+	  sed -e 1h -e 1s/./=/g -e 1p -e 1x -e '$$p' -e '$$x'
 
 dist-check: dist do-dist-check
-
-clean:
-	rm -rf bin
-
-dist-clean: clean
-	rm -f $(distname).tgz
-	rm -f $(f7distname).tgz

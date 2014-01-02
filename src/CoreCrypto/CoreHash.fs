@@ -11,6 +11,7 @@
  *)
 
 module CoreHash
+open Bytes
 
 open CryptoProvider
 
@@ -20,8 +21,8 @@ type engine = HashEngine of MessageDigest
 let name (HashEngine engine) =
     engine.Name
 
-let digest (HashEngine engine) (b : byte[]) =
-    engine.Digest (b)
+let digest (HashEngine engine) (b : bytes) =
+    abytes (engine.Digest (cbytes b))
 
 (* ---------------------------------------------------------------------- *)
 let md5engine    () = HashEngine (CoreCrypto.Digest "MD5"   )
@@ -31,9 +32,9 @@ let sha384engine () = HashEngine (CoreCrypto.Digest "SHA384")
 let sha512engine () = HashEngine (CoreCrypto.Digest "SHA512")
 
 (* ---------------------------------------------------------------------- *)
-let dohash (factory : unit -> engine) (x : byte[]) =
+let dohash (factory : unit -> engine) (x : bytes) =
     let engine = factory () in
-        digest engine x
+        (digest engine x)
 
 let md5    x = dohash md5engine    x
 let sha1   x = dohash sha1engine   x

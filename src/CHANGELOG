@@ -1,0 +1,13 @@
+miTLS 0.1.2 2013-03-19
+  * TLS library
+    * Optimize memory usage
+      The stream of exchanged data is truly ghost, only stored in ideal functionality
+    * Improve cryptographic provider handling
+      Add runtime support for different providers
+      Add .NET and SSLeay as providers
+  * HTTP server
+    * Improve support for WSGI interface
+    * Fix bugs
+
+miTLS 0.1.1 2013-02-11
+  * Initial public release

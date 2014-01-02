@@ -13,6 +13,7 @@
 module UTLS
 
 open Error
+open TLSError
 open Bytes
 open TLSInfo
 open Dispatch

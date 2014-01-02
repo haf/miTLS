@@ -15,34 +15,21 @@ module CRE
 open Bytes
 open TLSConstants
 open TLSInfo
-open DHGroup
+open PMS
+open PRF
 
-type rsarepr = (;48)lbytes
+// concrete PMS --> MS derivation.
 
-//#begin-abstractionRSA
-private type (;pk:RSAKey.pk,pv:ProtocolVersion) rsapms = {rsapms:rsarepr}
-predicate GeneratedRSAPMS of pk:RSAKey.pk * pv:ProtocolVersion * (;pk,pv)rsapms
-
-val genRSA: pk:RSAKey.pk -> pv:ProtocolVersion -> pms:(;pk,pv)rsapms{GeneratedRSAPMS(pk,pv,pms)}
-val coerceRSA: pk:RSAKey.pk -> pv:ProtocolVersion {not SafeRSAPMS(pk,pv)}-> bytes -> (;pk,pv)rsapms
-val leakRSA: pk:RSAKey.pk -> pv:ProtocolVersion {not SafeRSAPMS(pk,pv)}-> (;pk,pv)rsapms -> bytes
-//#end-abstractionRSA
-
-//#begin-abstractionDH
-private type (;p:p, g:(;p) g, gx:(;p) elt, gy:(;p) elt) dhpms = {dhpms: (;p) elt} // strong secret when (p,g), gx, and gy have been honestly generated
-
-val sampleDH:   p:p -> g:(;p)g -> gx:(;p)elt -> gy:(;p)elt ->            (;p,g,gx,gy) dhpms
-val coerceDH:   p:p -> g:(;p)g -> gx:(;p)elt -> gy:(;p)elt {not SafeDHPMS(p,g,gx,gy)}-> (;p)elt -> (;p,g,gx,gy) dhpms
-//#end-abstractionDH
-
-val prfSmoothRSA:
+val extract:
     si:SessionInfo ->
-    pv:ProtocolVersion ->
-    pms: (;Cert.RSAPKCert(si.serverID),pv) rsapms ->
+	pms: pms { si.pmsId = PmsId(pms) } ->
     (;si) PRF.masterSecret
 
-val prfSmoothDHE:
-    si:SessionInfo ->
-    p:DHGroup.p -> g:(;p)DHGroup.g -> gx:(;p)DHGroup.elt -> gy:(;p)DHGroup.elt ->
-    pms: (;p,g,gx,gy)dhpms ->
-    (;si) PRF.masterSecret
+private val accessRSAPMS: pk:RSAKey.pk -> cv:ProtocolVersion -> (;pk,cv) rsapms -> rsarepr
+private val accessDHPMS: p:DHGroup.p -> g:(;p)DHGroup.g -> gx:(;p)DHGroup.elt -> gy:(;p)DHGroup.elt -> pms: (;p,g,gx,gy)dhpms -> bytes
+private val accessPMS: pms -> bytes
+
+type entry = i:msId * (;i) ms
+private val log: entry list ref
+private val assoc: i:msId -> entry list -> (;i) PRF.ms option
+private val extractMS: si:SessionInfo {not HonestMS(MsI(si))} -> p:bytes -> (;si) PRF.masterSecret

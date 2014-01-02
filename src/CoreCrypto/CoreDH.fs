@@ -11,7 +11,7 @@
  *)
 
 module CoreDH
-
+open Bytes
 (* ------------------------------------------------------------------------ *)
 open System
 open System.IO
@@ -31,9 +31,9 @@ type skey = dhskey
 type pkey = dhpkey
 
 (* ------------------------------------------------------------------------ *)
-let check_element (pbytes:byte[]) (ebytes:byte[]) =
-    let p = new BigInteger(1,pbytes) in
-    let e = new BigInteger(1,ebytes) in
+let check_element (pbytes:bytes) (ebytes:bytes) =
+    let p = new BigInteger(1,cbytes pbytes) in
+    let e = new BigInteger(1,cbytes ebytes) in
     // check e in [2,p-1]
     ((e.CompareTo BigInteger.One) > 0) && ((e.CompareTo p) < 0)
 
@@ -43,26 +43,26 @@ let gen_params () : dhparams =
     let generator = new DHParametersGenerator() in
         generator.Init(1024, 80, random);
         let dhparams = generator.GenerateParameters() in
-            { p = dhparams.P.ToByteArrayUnsigned();
-              g = dhparams.G.ToByteArrayUnsigned(); }
+            { p = abytes (dhparams.P.ToByteArrayUnsigned());
+              g = abytes (dhparams.G.ToByteArrayUnsigned()); }
 
 (* ------------------------------------------------------------------------ *)
 let gen_key (dh : dhparams) : skey * pkey =
-    let dhparams = new DHParameters(new BigInteger(1, dh.p), new BigInteger(1, dh.g)) in
+    let dhparams = new DHParameters(new BigInteger(1, cbytes dh.p), new BigInteger(1, cbytes dh.g)) in
     let kparams  = new DHKeyGenerationParameters(new SecureRandom(), dhparams) in
     let kgen     = new DHKeyPairGenerator() in
         kgen.Init(kparams);
         let kpair = kgen.GenerateKeyPair() in
         let pkey  = (kpair.Public  :?> DHPublicKeyParameters ) in
         let skey  = (kpair.Private :?> DHPrivateKeyParameters) in
-            ((skey.X.ToByteArrayUnsigned(), dh), (pkey.Y.ToByteArrayUnsigned(), dh))
+            ((abytes (skey.X.ToByteArrayUnsigned()), dh), (abytes (pkey.Y.ToByteArrayUnsigned()), dh))
 
 (* ------------------------------------------------------------------------ *)
-let agreement (dh : dhparams) (x : dhsbytes) (y : dhpbytes) : byte[] =
-    let x = new BigInteger(1, x) in
-    let y = new BigInteger(1, y) in
-    let p = new BigInteger(1, dh.p) in
-        y.ModPow(x, p).ToByteArrayUnsigned()
+let agreement (dh : dhparams) (x : dhsbytes) (y : dhpbytes) : bytes =
+    let x = new BigInteger(1, cbytes x) in
+    let y = new BigInteger(1, cbytes y) in
+    let p = new BigInteger(1, cbytes dh.p) in
+        abytes (y.ModPow(x, p).ToByteArrayUnsigned())
 
 (* ------------------------------------------------------------------------ *)
 let PEM_DH_PARAMETERS_HEADER = "DH PARAMETERS"
@@ -79,8 +79,8 @@ c8o7MMjRcCH7fDi4BIAzdEKdDYB7uEqnGJgn
 (* ------------------------------------------------------------------------ *)
 let save_params (stream : Stream) (dh : dhparams) =
     let writer    = new PemWriter(new StreamWriter(stream)) in
-    let derparams = new DerSequence([| new DerInteger(new BigInteger(1, dh.p)) :> Asn1Encodable;
-                                       new DerInteger(new BigInteger(1, dh.g)) :> Asn1Encodable|])
+    let derparams = new DerSequence([| new DerInteger(new BigInteger(1, cbytes dh.p)) :> Asn1Encodable;
+                                       new DerInteger(new BigInteger(1, cbytes dh.g)) :> Asn1Encodable|])
                         :> Asn1Encodable in
 
     writer.WriteObject(new PemObject(PEM_DH_PARAMETERS_HEADER, derparams.GetDerEncoded()));
@@ -111,8 +111,8 @@ let load_params (stream : Stream) : dhparams =
     if obj.Count <> 2 then
         raise (new SecurityUtilityException());
 
-    { p = DerInteger.GetInstance(obj.Item(0)).PositiveValue.ToByteArrayUnsigned() ;
-      g = DerInteger.GetInstance(obj.Item(1)).PositiveValue.ToByteArrayUnsigned() }
+    { p = abytes (DerInteger.GetInstance(obj.Item(0)).PositiveValue.ToByteArrayUnsigned()) ;
+      g = abytes (DerInteger.GetInstance(obj.Item(1)).PositiveValue.ToByteArrayUnsigned()) }
 
 let load_params_from_file (file : string) : dhparams option =
     let filestream = new FileStream(file, FileMode.Open, FileAccess.Read) in

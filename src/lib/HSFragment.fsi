@@ -14,20 +14,24 @@ module HSFragment
 open Bytes
 open TLSInfo
 open Range
+open TLSError
 
 type stream
 
 type fragment
 type plain = fragment
 
-val fragmentRepr: epoch -> range -> fragment -> bytes
-val fragmentPlain: epoch -> range -> bytes -> fragment
+val userPlain: id -> range -> bytes -> fragment
+val userRepr:  id -> range -> fragment -> bytes
 
-val extend: epoch -> stream -> range -> fragment -> stream
-val init: epoch -> stream
+val fragmentRepr: id -> range -> fragment -> bytes
+val fragmentPlain: id -> range -> bytes -> fragment Result
 
-val reStream: epoch -> stream -> range -> plain -> stream -> plain
+val extend: id -> stream -> range -> fragment -> stream
+val init: id -> stream
+
+val reStream: id -> stream -> range -> plain -> stream -> plain
 
 #if ideal
-val widen: epoch -> range -> range -> fragment -> fragment
+val widen: id -> range -> range -> fragment -> fragment
 #endif

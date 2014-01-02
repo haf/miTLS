@@ -21,6 +21,7 @@ open System.Security.Cryptography.X509Certificates
 open Bytes
 open TLSConstants
 open Error
+open TLSError
 
 (* ------------------------------------------------------------------------ *)
 type hint = string
@@ -41,7 +42,7 @@ let OID_DSASignature            = "1.2.840.10040.4.3"
 let oid_of_keyalg = function
 | SA_RSA   -> OID_RSAEncryption
 | SA_DSA   -> OID_DSASignatureKey
-| SA_ECDSA -> Error.unexpectedError "SA_ECDSA"
+| SA_ECDSA -> Error.unexpected "SA_ECDSA"
 
 (* ------------------------------------------------------------------------ *)
 let x509_to_public_key (x509 : X509Certificate2) =
@@ -49,16 +50,16 @@ let x509_to_public_key (x509 : X509Certificate2) =
     | x when x = OID_RSAEncryption ->
         try
             let pkey = (x509.PublicKey.Key :?> RSA).ExportParameters(false) in
-                Some (CoreSig.PK_RSA (pkey.Modulus, pkey.Exponent))
+                Some (CoreSig.PK_RSA (abytes pkey.Modulus, abytes pkey.Exponent))
         with :? CryptographicException -> None
 
     | x when x = OID_DSASignatureKey ->
         try
             let pkey = (x509.PublicKey.Key :?> DSA).ExportParameters(false) in
             let dsaparams : CoreKeys.dsaparams =
-                { p = pkey.P; q = pkey.Q; g = pkey.G }
+                { p = abytes pkey.P; q = abytes pkey.Q; g = abytes pkey.G }
             in
-                Some (CoreSig.PK_DSA (pkey.Y, dsaparams))
+                Some (CoreSig.PK_DSA (abytes pkey.Y, dsaparams))
         with :? CryptographicException -> None
 
     | _ -> None
@@ -68,16 +69,16 @@ let x509_to_secret_key (x509 : X509Certificate2) =
     | x when x = OID_RSAEncryption ->
         try
             let skey = (x509.PrivateKey :?> RSA).ExportParameters(true) in
-                Some (CoreSig.SK_RSA (skey.Modulus, skey.D))
+                Some (CoreSig.SK_RSA (abytes skey.Modulus, abytes skey.D))
         with :? CryptographicException -> None
 
     | x when x = OID_DSASignatureKey ->
         try
             let skey = (x509.PrivateKey :?> DSA).ExportParameters(true) in
             let dsaparams : CoreKeys.dsaparams =
-                { p = skey.P; q = skey.Q; g = skey.G }
+                { p = abytes skey.P; q = abytes skey.Q; g = abytes skey.G }
             in
-                Some (CoreSig.SK_DSA (skey.X, dsaparams))
+                Some (CoreSig.SK_DSA (abytes skey.X, dsaparams))
         with :? CryptographicException -> None
 
     | _ -> None
@@ -131,7 +132,7 @@ let x509_chain (x509 : X509Certificate2) = (* FIX: Is certs. store must be opene
 
 (* ------------------------------------------------------------------------ *)
 let x509_export_public (x509 : X509Certificate2) : bytes =
-    x509.Export(X509ContentType.Cert)
+    abytes (x509.Export(X509ContentType.Cert))
 
 (* ------------------------------------------------------------------------ *)
 let x509_is_for_signing (x509 : X509Certificate2) =
@@ -168,15 +169,16 @@ let for_signing (sigkeyalgs : Sig.alg list) (h : hint) (algs : Sig.alg list) =
                         |> Seq.filter (x509_check_key_sig_alg_one sigkeyalgs)
                         |> Seq.pick pick_wrt_req_alg
             in
-                match x509_to_secret_key x509 with
-                | Some skey ->
+                match x509_to_secret_key x509, x509_to_public_key x509 with
+                | Some skey, Some pkey ->
                     let chain = x509_chain x509 in
 
                     if Seq.forall (x509_check_key_sig_alg_one sigkeyalgs) chain then
-                        Some (chain |> List.map x509_export_public, alg, Sig.create_skey hasha skey)
+                        Some (chain |> List.map x509_export_public, alg, Sig.coerce alg (Sig.create_pkey alg pkey) skey)
                     else
                         None
-                | None -> None
+                | None, _ -> None
+                | _, None -> None
         with :? KeyNotFoundException -> None
     finally
         store.Close()
@@ -215,12 +217,12 @@ let for_key_encryption (sigkeyalgs : Sig.alg list) (h : hint) =
 (* ------------------------------------------------------------------------ *)
 let is_for_signing (c : cert) =
     try
-        x509_is_for_signing (new X509Certificate2(c))
+        x509_is_for_signing (new X509Certificate2(cbytes c))
     with :? CryptographicException -> false
 
 let is_for_key_encryption (c : cert) =
     try
-        x509_is_for_key_encryption (new X509Certificate2(c))
+        x509_is_for_key_encryption (new X509Certificate2(cbytes c))
     with :? CryptographicException -> false
 
 (* ------------------------------------------------------------------------ *)
@@ -231,13 +233,13 @@ let is_chain_for_key_encryption (chain : chain) =
     match chain with [] -> false| c :: _ -> is_for_key_encryption c
 
 (* ------------------------------------------------------------------------ *)
-let get_public_signing_key (c : cert) ((siga, hasha) as a : Sig.alg) : Sig.pkey Result =
+let get_public_signing_key (c : cert) ((siga, _) as a : Sig.alg) : Sig.pkey Result =
     try
-        let x509 = new X509Certificate2(c) in
+        let x509 = new X509Certificate2(cbytes c) in
             if x509_is_for_signing x509 then
                 match siga, x509_to_public_key x509 with
-                | SA_RSA, Some (CoreSig.PK_RSA (sm, se) as k) -> Correct (Sig.create_pkey hasha k)
-                | SA_DSA, Some (CoreSig.PK_DSA (y, p  ) as k) -> Correct (Sig.create_pkey hasha k)
+                | SA_RSA, Some (CoreSig.PK_RSA (sm, se) as k) -> Correct (Sig.create_pkey a k)
+                | SA_DSA, Some (CoreSig.PK_DSA (y, p  ) as k) -> Correct (Sig.create_pkey a k)
                 | _ -> Error(AD_unsupported_certificate_fatal, perror __SOURCE_FILE__ __LINE__ "Certificate uses unknown signature algorithm or key")
             else
                 Error(AD_bad_certificate_fatal, perror __SOURCE_FILE__ __LINE__ "Certificate is not for signing")
@@ -245,7 +247,7 @@ let get_public_signing_key (c : cert) ((siga, hasha) as a : Sig.alg) : Sig.pkey 
 
 let get_public_encryption_key (c : cert) : RSAKey.pk Result =
     try
-        let x509 = new X509Certificate2(c) in
+        let x509 = new X509Certificate2(cbytes c) in
             if x509_is_for_key_encryption x509 then
                 match x509_to_public_key x509 with
                 | Some (CoreSig.PK_RSA(pm, pe)) -> Correct (RSAKey.create_rsapkey (pm, pe))
@@ -271,7 +273,7 @@ let get_chain_key_algorithm (chain : chain) =
     | []     -> None
     | c :: _ ->
         try
-            let x509 = new X509Certificate2(c) in
+            let x509 = new X509Certificate2(cbytes c) in
                 match x509.GetKeyAlgorithm () with
                 | x when x = OID_RSAEncryption   -> Some SA_RSA
                 | x when x = OID_DSASignatureKey -> Some SA_DSA
@@ -309,8 +311,8 @@ let validate_cert_chain (sigkeyalgs : Sig.alg list) (chain : chain) =
     | []           -> false
     | c :: issuers ->
         try
-            let c       = new X509Certificate2(c) in
-            let issuers = List.map (fun (c : cert) -> new X509Certificate2(c)) chain in
+            let c       = new X509Certificate2(cbytes c) in
+            let issuers = List.map (fun (c : cert) -> new X509Certificate2(cbytes c)) chain in
                 Seq.forall (x509_check_key_sig_alg_one sigkeyalgs) (c :: issuers)
                 && validate_x509_chain c issuers
 
@@ -319,7 +321,7 @@ let validate_cert_chain (sigkeyalgs : Sig.alg list) (chain : chain) =
 
 (* ------------------------------------------------------------------------ *)
 let get_hint (chain : chain) =
-    let chain = List.map (fun (c : cert) -> new X509Certificate2(c)) chain in
+    let chain = List.map (fun (c : cert) -> new X509Certificate2(cbytes c)) chain in
 
     match chain with
     | []     -> None
@@ -331,11 +333,11 @@ let consCertificateBytes c a =
     cert @| a
 
 let certificateListBytes certs =
-    let unfolded = Bytes.foldBack consCertificateBytes certs [||] in
+    let unfolded = List.foldBack consCertificateBytes certs empty_bytes in
     vlbytes 3 unfolded
 
 let rec parseCertificateList toProcess list =
-    if equalBytes toProcess [||] then
+    if equalBytes toProcess empty_bytes then
         correct(list)
     else
         if length toProcess >= 3 then

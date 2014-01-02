@@ -22,4 +22,4 @@ let random (i : int) =
 
     let bytes = Array.create i 0uy in
         lock provider (fun () -> provider.NextBytes(bytes, 0, i));
-        bytes
+        Bytes.abytes bytes

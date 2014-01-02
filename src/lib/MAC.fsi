@@ -21,9 +21,9 @@ type tag = bytes
 
 type key
 
-val Mac:    epoch -> key -> text -> tag
-val Verify: epoch -> key -> text -> tag -> bool
+val Mac:    id -> key -> text -> tag
+val Verify: id -> key -> text -> tag -> bool
 
-val GEN: epoch -> key
-val LEAK:   epoch -> key -> bytes
-val COERCE: epoch -> bytes -> key
+val GEN: id -> key
+val LEAK:   id -> key -> bytes
+val COERCE: id -> bytes -> key

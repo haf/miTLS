@@ -39,6 +39,44 @@ type BCMessageDigest (engine : IDigest) =
                 engine.Reset ()
 
 (* ------------------------------------------------------------------------ *)
+type BCAeadCipher (direction : direction, engine : IAeadBlockCipher) =
+    member private self.ProcessEncryption (b : byte[]) =
+        let output = Array.create (engine.GetOutputSize b.Length) 0uy in
+        let len    = engine.ProcessBytes(b, 0, b.Length, output, 0) in
+            ignore (engine.DoFinal(output, len));
+            output
+
+    member private self.ProcessDecryption (b : byte[]) =
+        let osize = engine.GetOutputSize b.Length in
+
+        if osize < 0 then
+            raise AEADFailure
+
+        let output = Array.create osize 0uy in
+
+        try
+            let off = engine.ProcessBytes(b, 0, b.Length, output, 0) in
+                ignore (engine.DoFinal(output, off));
+                output
+        with :? InvalidCipherTextException ->
+            raise AEADFailure
+
+    interface AeadCipher with
+        member self.Name =
+            engine.AlgorithmName
+
+        member self.Direction =
+            direction
+
+        member self.Process(b : byte[]) =
+            try
+                match direction with
+                | ForEncryption -> self.ProcessEncryption b
+                | ForDecryption -> self.ProcessDecryption b
+            finally
+                engine.Reset ()
+
+(* ------------------------------------------------------------------------ *)
 module BlockCipher =
     type icipher = {
         create    : unit -> IBlockCipher;
@@ -116,23 +154,43 @@ type BCProvider () =
                     Some (new BCMessageDigest (engine) :> MessageDigest)
             with :? SecurityUtilityException -> None
 
+        member self.AeadCipher (d : direction) (c : acipher) (m : amode) (k : key) =
+            let (GCM (iv, adata)) = m
+
+            let engine =
+                match c with
+                | acipher.AES -> new AesFastEngine() :> IBlockCipher
+            let engine = new GcmBlockCipher(engine)
+
+            let param = new KeyParameter(k) in
+            let param = new AeadParameters(param, 128, iv, adata) in
+
+            engine.Init((d = ForEncryption), param);
+            Some (new BCAeadCipher(d, engine) :> AeadCipher)
+
         member self.BlockCipher (d : direction) (c : cipher) (m : mode option) (k : key) =
             let icipher_of_cipher (cipher : cipher) =
                 match cipher with
-                | AES  -> BlockCipher.aes_icipher
-                | DES3 -> BlockCipher.des3_icipher
+                | cipher.AES  -> BlockCipher.aes_icipher
+                | cipher.DES3 -> BlockCipher.des3_icipher
 
             let icipher = icipher_of_cipher c in
             let icipher =
                 match m with
                 | None -> icipher
+
                 | Some (CBC iv) ->
                     { create    = fun () -> new CbcBlockCipher(icipher.create ()) :> IBlockCipher;
                       keyparams = fun k  -> new ParametersWithIV(icipher.keyparams k, iv) :> ICipherParameters; }
+
             in
-                let engine = icipher.create () in
-                    engine.Init((d = ForEncryption), icipher.keyparams k);
-                    Some (new BCBlockCipher (d, engine) :> BlockCipher)
+
+            let engine_of_icipher (ic : BlockCipher.icipher) =
+                let engine = ic.create () in
+                    engine.Init((d = ForEncryption), ic.keyparams k);
+                    new BCBlockCipher (d, engine) :> BlockCipher
+            in
+                Some (icipher |> engine_of_icipher)
 
         member self.StreamCipher (d : direction) (c : scipher) (k : key) =
             let engine =

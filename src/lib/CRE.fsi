@@ -16,29 +16,7 @@ open Bytes
 open TLSConstants
 open TLSInfo
 open Error
+open TLSError
+open PMS
 
-type rsarepr = bytes
-type rsapms
-type dhpms
-
-#if ideal
-
-type pms = RSA_pms of rsapms | DHE_pms of dhpms
-val corrupt: pms -> bool
-#endif
-
-val genRSA: RSAKey.pk -> TLSConstants.ProtocolVersion -> rsapms
-
-val coerceRSA: RSAKey.pk -> ProtocolVersion -> rsarepr -> rsapms
-val leakRSA: RSAKey.pk -> ProtocolVersion -> rsapms -> rsarepr
-
-val sampleDH: DHGroup.p -> DHGroup.g -> DHGroup.elt -> DHGroup.elt -> dhpms
-
-val coerceDH: DHGroup.p -> DHGroup.g -> DHGroup.elt -> DHGroup.elt -> DHGroup.elt -> dhpms
-
-val prfSmoothRSA: SessionInfo -> ProtocolVersion -> rsapms -> PRF.masterSecret
-val prfSmoothDHE: SessionInfo -> DHGroup.p -> DHGroup.g -> DHGroup.elt -> DHGroup.elt -> dhpms -> PRF.masterSecret
-
-(* Used when generating key material from the MS.
-   The result must still be split into the various keys.
-   Of course this method can do the splitting internally and return a record/pair *)
+val extract: SessionInfo -> pms -> PRF.masterSecret

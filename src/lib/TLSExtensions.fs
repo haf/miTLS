@@ -14,18 +14,23 @@ module TLSExtensions
 
 open Bytes
 open Error
+open TLSError
 open TLSConstants
+open TLSInfo
 
 type extensionType =
     | HExt_renegotiation_info
+    | HExt_extended_padding
 
 let extensionTypeBytes hExt =
     match hExt with
-    | HExt_renegotiation_info -> [|0xFFuy; 0x01uy|]
+    | HExt_renegotiation_info -> abyte2 (0xFFuy, 0x01uy)
+    | HExt_extended_padding -> abyte2 (0xBBuy, 0x8Fuy)
 
 let parseExtensionType b =
-    match b with
-    | [|0xFFuy; 0x01uy|] -> correct(HExt_renegotiation_info)
+    match cbyte2 b with
+    | (0xFFuy, 0x01uy) -> correct(HExt_renegotiation_info)
+    | (0xBBuy, 0x8Fuy) -> correct(HExt_extended_padding)
     | _                  -> let reason = perror __SOURCE_FILE__ __LINE__ "" in Error(AD_decode_error, reason)
 
 let isExtensionType et (ext:extensionType * bytes) =
@@ -73,13 +78,33 @@ let parseRenegotiationInfoExtension payload =
         Error(AD_decode_error,reason)
 
 (* Top-level extension handling *)
-let extensionsBytes safeRenegoEnabled verifyData =
-    if safeRenegoEnabled then
-        let renInfo = renegotiationInfoExtensionBytes verifyData in
-        vlbytes 2 renInfo
-    else
+let extensionsBytes cfg verifyData peerExtPad =
+    let renInfo =
+        if cfg.safe_renegotiation then
+            renegotiationInfoExtensionBytes verifyData
+        else
+            empty_bytes
+    let extPad =
+        if cfg.extended_padding && peerExtPad then
+            extensionBytes HExt_extended_padding empty_bytes
+        else
+            empty_bytes
+    if equalBytes renInfo empty_bytes && equalBytes extPad empty_bytes then
         (* We are sending no extensions at all *)
-        [||]
+        empty_bytes
+    else
+        vlbytes 2 (renInfo @| extPad)
+
+let rec checkExtCount extList =
+    match extList with
+    | [] -> correct()
+    | h::t ->
+        let (extType,_) = h in
+        let count = List.filter (isExtensionType extType) t in
+        if List.listLength count > 0 then
+            Error(AD_handshake_failure, perror __SOURCE_FILE__ __LINE__ "Same extension received more than once")
+        else
+            checkExtCount t
 
 let parseExtensions data =
     match length data with
@@ -92,58 +117,106 @@ let parseExtensions data =
             match parseExtensionList exts [] with
             | Error(x,y) -> Error(x,y)
             | Correct(extList) ->
-                (* Check there is at most one renegotiation_info extension *)
-
-                let ren_ext_list = Bytes.filter (isExtensionType HExt_renegotiation_info) extList in
-                if listLength ren_ext_list > 1 then
-                    Error(AD_handshake_failure, perror __SOURCE_FILE__ __LINE__ "Same extension received more than once")
-                else
-                    correct(ren_ext_list)
+                (* Check there is at most one extension per type*)
+                match checkExtCount extList with
+                | Error(x,y) -> Error(x,y)
+                | Correct() -> correct(extList)
 
 let check_reneg_info payload expected =
     // We also check there were no more data in this extension.
     match parseRenegotiationInfoExtension payload with
-    | Error(x,y)     -> false
-    | Correct (recv) -> equalBytes recv expected
-
-let checkClientRenegotiationInfoExtension (ren_ext_list:(extensionType * bytes) list) ch_cipher_suites expected =
-    let has_SCSV = contains_TLS_EMPTY_RENEGOTIATION_INFO_SCSV ch_cipher_suites in
-    if equalBytes expected [||]
-    then
-        (* First handshake *)
-        if listLength ren_ext_list = 0
-        then has_SCSV
-            (* either client gave SCSV and no extension; this is OK for first handshake *)
-            (* or the client doesn't support this extension and we fail *)
+    | Error(x,y)     -> Error(x,y)
+    | Correct (recv) ->
+        if equalBytes recv expected then
+            correct()
         else
-            let ren_ext = listHead ren_ext_list in
-            let (extType,payload) = ren_ext in
-            check_reneg_info payload expected
-    else
-        (* Not first handshake *)
-        if has_SCSV || (listLength ren_ext_list = 0) then false
-        else
-            let ren_ext = listHead ren_ext_list in
-            let (extType,payload) = ren_ext in
-            check_reneg_info payload expected
+            (* RFC 5746, sec 3.4: send a handshake failure alert *)
+            Error(AD_handshake_failure, perror __SOURCE_FILE__ __LINE__ "Wrong renegotiation information")
 
-let inspect_ServerHello_extensions (extList:(extensionType * bytes) list) expected =
-
-    (* We expect to find exactly one extension *)
-    match listLength extList with
-    | 0 -> Error(AD_handshake_failure, perror __SOURCE_FILE__ __LINE__ "Not enough extensions given")
-    | x when x <> 1 -> Error(AD_handshake_failure, perror __SOURCE_FILE__ __LINE__ "Too many extensions given")
-    | _ ->
-        let (extType,payload) = listHead extList in
-        match extType with
-        | HExt_renegotiation_info ->
-            (* Check its content *)
-            if check_reneg_info payload expected then
-                let unitVal = () in
-                correct (unitVal)
+let inspect_ClientHello_extensions cfg (extList:(extensionType * bytes) list) ch_cipher_suites expected =
+    (* Safe renegotiation *)
+    let safe_renego =
+        if cfg.safe_renegotiation then
+            let renExt = List.filter (isExtensionType HExt_renegotiation_info) extList in
+            let count = List.listLength renExt in
+            let has_SCSV = contains_TLS_EMPTY_RENEGOTIATION_INFO_SCSV ch_cipher_suites in
+            if equalBytes expected empty_bytes then
+                (* First handshake *)
+                match (count,has_SCSV) with
+                | (0,true) ->
+                    (* the client gave SCSV and no extension; this is OK for first handshake *)
+                    correct()
+                | (0,false) ->
+                    (* the client doesn't support this extension: we report error *)
+                    Error(AD_handshake_failure, perror __SOURCE_FILE__ __LINE__ "Client does not support the requested safe renegotiation extension")
+                | (_,_) ->
+                    let ren_ext = List.listHead renExt in
+                    let (extType,payload) = ren_ext in
+                    check_reneg_info payload expected
             else
-                (* RFC 5746, sec 3.4: send a handshake failure alert *)
-                Error(AD_handshake_failure, perror __SOURCE_FILE__ __LINE__ "Wrong renegotiation information")
+                (* Not first handshake *)
+                if has_SCSV || (count = 0) then
+                    Error(AD_handshake_failure, perror __SOURCE_FILE__ __LINE__ "Client provided wrong information for safe renegotiation extension")
+                else
+                    let ren_ext = List.listHead renExt in
+                    let (extType,payload) = ren_ext in
+                    check_reneg_info payload expected
+        else
+            (* Ignore client provided extension *)
+            correct()
+
+    match safe_renego with
+    | Error(x,y) -> Error(x,y)
+    | Correct() ->
+    (* Extended record padding *)
+        if cfg.extended_padding then
+            let count = List.filter (isExtensionType HExt_extended_padding) extList in
+            let count = List.listLength count in
+            if count = 0 then
+                correct(false)
+            else
+                correct(true)
+        else
+            (* Ignore client provided extension *)
+            correct(false)
+
+let inspect_ServerHello_extensions cfg (extList:(extensionType * bytes) list) expected =
+    let unitVal = () in
+    let renegOutcome =
+        let renExt = List.filter (isExtensionType HExt_renegotiation_info) extList in
+        let count = List.listLength renExt in
+        if cfg.safe_renegotiation then
+            match count with
+            | 1 ->
+                let (_,payload) = List.listHead renExt in
+                check_reneg_info payload expected
+            | _ -> (* Extension not provided by server *)
+                Error(AD_handshake_failure, perror __SOURCE_FILE__ __LINE__ "Server did not provide required safe renegotiation extension")
+        else
+            (* We, as a client, did not send a safe renegotiation extension,
+               check there is no such extension in server reply *)
+            if count > 0 then
+                Error(AD_handshake_failure, perror __SOURCE_FILE__ __LINE__ "Renegotiation info extension provided by server, but not sent by the client")
+            else
+                correct (unitVal)
+    match renegOutcome with
+    | Error(x,y) -> Error(x,y)
+    | Correct() ->
+    (* Extended padding *)
+    let count = List.filter (isExtensionType HExt_extended_padding) extList in
+    let count = List.listLength count in
+    if cfg.extended_padding then
+        if count = 0 then
+            correct(false)
+        else
+            correct(true)
+    else
+        (* We, as a client, did not send an extended padding extension,
+            check there is no such extension in server reply *)
+        if count > 0 then
+            Error(AD_handshake_failure, perror __SOURCE_FILE__ __LINE__ "Extended padding extension provided by server, but not sent by the client")
+        else
+            correct(false)
 
 (* SignatureAndHashAlgorithm parsing functions *)
 let sigHashAlgBytes alg =
@@ -164,7 +237,7 @@ let parseSigHashAlg b =
 
 let rec sigHashAlgListBytes algL =
     match algL with
-    | [] -> [||]
+    | [] -> empty_bytes
     | h::t ->
         let oneItem = sigHashAlgBytes h in
         oneItem @| sigHashAlgListBytes t
@@ -198,16 +271,16 @@ let default_sigHashAlg_fromSig pv sigAlg=
         //match pv with
         //| TLS_1p0| TLS_1p1 | TLS_1p2 -> [(SA_DSA, SHA)]
         //| SSL_3p0 -> [(SA_DSA,NULL)]
-    | _ -> unexpectedError "[default_sigHashAlg_fromSig] invoked on an invalid signature algorithm"
+    | _ -> unexpected "[default_sigHashAlg_fromSig] invoked on an invalid signature algorithm"
 
 let default_sigHashAlg pv cs =
     default_sigHashAlg_fromSig pv (sigAlg_of_ciphersuite cs)
 
 let sigHashAlg_contains (algList:Sig.alg list) (alg:Sig.alg) =
-    Bytes.exists (fun a -> a = alg) algList
+    List.exists (fun a -> a = alg) algList
 
 let sigHashAlg_bySigList (algList:Sig.alg list) (sigAlgList:sigAlg list):Sig.alg list =
-    Bytes.choose (fun alg -> let (sigA,_) = alg in if (Bytes.exists (fun a -> a = sigA) sigAlgList) then Some(alg) else None) algList
+    List.choose (fun alg -> let (sigA,_) = alg in if (List.exists (fun a -> a = sigA) sigAlgList) then Some(alg) else None) algList
 
 let cert_type_to_SigHashAlg ct pv =
     match ct with

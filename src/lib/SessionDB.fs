@@ -12,20 +12,45 @@
 
 module SessionDB
 
+open Bytes
+open TLSInfo
+open Date
+
+(* ------------------------------------------------------------------------------- *)
+type StorableSession = SessionInfo * PRF.masterSecret
+type SessionIndex = sessionID * Role * Cert.hint
+#if ideal
+type entry = sessionID * Role * Cert.hint * StorableSession
+type t = entry list
+
+let create (c:config) : t = []
+
+let insert (db:t) sid r h sims : t = (sid,r,h,sims)::db
+
+let rec select (db:t) sid r h =
+  match db with
+  | (sid',r',h',sims)::db when sid=sid' && r=r' && h=h'  -> Some(sims)
+  | _::db                                                -> select db sid r h
+  | []                                                   -> None
+
+let rec remove (db:t) sid r h =
+  match db with
+  | (sid',r',h',sims)::db when sid=sid' && r=r' && h=h' -> remove db sid r h
+  | e::db                                               -> e::remove db sid r h
+  | []                                                  -> []
+
+let rec getAllStoredIDs (db:t) =
+  match db with
+  | (sid,r,h,sims)::db -> (sid,r,h)::getAllStoredIDs db
+  | []                 -> []
+#else
 open System.IO
 open System.Runtime.Serialization.Formatters.Binary
 
-open Bytes
-open TLSInfo
-
-(* ------------------------------------------------------------------------------- *)
-type SessionDB = {
+type t = {
     filename: string;
-      expiry: Bytes.TimeSpan;
+    expiry: TimeSpan;
 }
-
-type SessionIndex = sessionID * Role * Cert.hint
-type StorableSession = SessionInfo * PRF.masterSecret
 
 (* ------------------------------------------------------------------------------- *)
 module Option =
@@ -41,7 +66,7 @@ let bytes_of_key (k : SessionIndex) =
     let m  = new MemoryStream () in
         bf.Serialize(m, k); m.ToArray ()
 
-let key_of_bytes (k : bytes) =
+let key_of_bytes (k : byte[]) =
     let bf = new BinaryFormatter () in
     let m  = new MemoryStream(k) in
 
@@ -52,7 +77,7 @@ let bytes_of_value (k : StorableSession * DateTime) =
     let m  = new MemoryStream () in
         bf.Serialize(m, k); m.ToArray ()
 
-let value_of_bytes (k : bytes) =
+let value_of_bytes (k : byte[]) =
     let bf = new BinaryFormatter () in
     let m  = new MemoryStream(k) in
 
@@ -69,8 +94,8 @@ let create poptions =
     self
 
 (* ------------------------------------------------------------------------------- *)
-let remove self key =
-    let key = bytes_of_key key in
+let remove self sid role hint =
+    let key = bytes_of_key (sid,role,hint) in
     let db  = DB.opendb self.filename in
 
     try
@@ -80,14 +105,14 @@ let remove self key =
         DB.closedb db
 
 (* ------------------------------------------------------------------------------- *)
-let select self key =
-    let key = bytes_of_key key in
+let select self sid role hint =
+    let key = bytes_of_key (sid,role,hint) in
 
     let select (db : DB.db) =
         let filter_record ((sinfo, ts) : StorableSession * _) =
-            let expires = Bytes.addTimeSpan ts self.expiry in
+            let expires = addTimeSpan ts self.expiry in
 
-            if Bytes.greaterDateTime expires (Bytes.now()) then
+            if greaterDateTime expires (now()) then
                 Some sinfo
             else
                 ignore (DB.remove db key);
@@ -106,17 +131,13 @@ let select self key =
         DB.closedb db
 
 (* ------------------------------------------------------------------------------- *)
-let insert self key value =
-    let key = bytes_of_key key in
-
+let insert self sid role hint value =
+    let key = bytes_of_key (sid,role,hint) in
     let insert (db : DB.db) =
         match DB.get db key with
         | Some _ -> ()
-        | None   -> DB.put db key (bytes_of_value (value, Bytes.now ()))
-    in
-
+        | None   -> DB.put db key (bytes_of_value (value, now ())) in
     let db = DB.opendb self.filename in
-
     try
         DB.tx db insert; self
     finally
@@ -133,3 +154,5 @@ let getAllStoredIDs self =
             DB.closedb db
     in
         List.map key_of_bytes aout
+
+#endif

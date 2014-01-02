@@ -13,18 +13,16 @@
 module TLSPRF
 
 (* Concrete (bytes -> bytes) PRF algorithms for TLS; trusted. *)
-(* Used by CRE and PRF *)
+(* Used by CRE for extracting MS, by PRF for verifyData and key derivation *)
 
 open Bytes
 open TLSConstants
+open TLSInfo
 
-(* Verify data *)
-val ssl_verifyData : bytes -> bytes  -> bytes -> (;12)lbytes
-val tls_verifyData : bytes -> string -> bytes -> (;12)lbytes
-val tls12VerifyData: cipherSuite -> bytes -> string -> bytes -> bytes
-
-(* PRF *)
-val prf: ProtocolVersion -> cipherSuite -> bytes -> string -> bytes -> l:nat -> (;l)lbytes
+val verifyData: prfAlg -> bytes -> Role -> bytes -> bytes
+val extract:   creAlg -> bytes -> bytes -> l:nat -> (;l)lbytes
+val kdf:        prfAlg -> bytes -> bytes -> l:nat -> (;l)lbytes
 
 (* SSL-specific certificate verify *)
-val ssl_certificate_verify: bytes -> bytes -> hashAlg -> bytes
+
+val ssl_verifyCertificate: a:hashAlg{ a = MD5 \/ a = SHA }-> bytes -> bytes -> bytes

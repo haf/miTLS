@@ -1,0 +1,20 @@
+AUTHORS
+CHANGELOG
+LICENSE
+MANIFEST
+README
+
+Makefile
+Makefile.config
+
+scripts/distribution
+
+licenses/*.txt
+
+tls.sln
+
+find:3rdparty:*.dll
+find:DB/lib:*.dll
+
+# VS Projects
+vs:tls.sln:CoreCrypto,DB,echo,HttpServer,lib,Platform,pwapp,TLSharp,OpenSSL

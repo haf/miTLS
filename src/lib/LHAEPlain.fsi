@@ -14,19 +14,20 @@ module LHAEPlain
 open Bytes
 open TLSInfo
 open Range
+open TLSError
 
 type adata = bytes
 type fragment
 type plain = fragment
 
-val plain: epoch -> adata -> range -> bytes -> plain
-val repr:  epoch -> adata -> range -> plain -> bytes
+val plain: id -> adata -> range -> bytes -> plain Result
+val repr:  id -> adata -> range -> plain -> bytes
 
-val makeAD: epoch -> StatefulPlain.history -> StatefulPlain.adata -> adata
-val parseAD: epoch -> adata -> StatefulPlain.adata
-val StatefulPlainToLHAEPlain: epoch -> StatefulPlain.history -> StatefulPlain.adata -> range -> StatefulPlain.plain -> plain
-val LHAEPlainToStatefulPlain: epoch -> StatefulPlain.history -> StatefulPlain.adata -> range -> plain -> StatefulPlain.plain
+val makeAD: id -> StatefulPlain.history -> StatefulPlain.adata -> adata
+val parseAD: id -> adata -> StatefulPlain.adata
+val StatefulPlainToLHAEPlain: id -> StatefulPlain.history -> StatefulPlain.adata -> adata -> range -> StatefulPlain.plain -> plain
+val LHAEPlainToStatefulPlain: id -> StatefulPlain.history -> StatefulPlain.adata -> adata -> range -> plain -> StatefulPlain.plain
 
 #if ideal
-val widen: epoch -> adata -> range -> fragment -> fragment
+val widen: id -> adata -> range -> fragment -> fragment
 #endif

@@ -13,22 +13,26 @@
 module PRF
 
 open Bytes
+open TLSConstants
 open TLSInfo
 
 type repr = bytes
-type masterSecret
+type ms
+type masterSecret = ms
 
 #if ideal
-val sample: SessionInfo -> masterSecret
+val sample: msId -> ms
 #endif
 
-val keyGen: ConnectionInfo -> masterSecret -> StatefulLHAE.writer * StatefulLHAE.reader
+//#begin-coerce
+val coerce: msId -> repr -> masterSecret
+//#end-coerce
 
-val makeVerifyData:  epoch -> Role -> masterSecret -> bytes -> bytes
-val checkVerifyData: epoch -> Role -> masterSecret -> bytes -> bytes -> bool
+val keyCommit: csrands -> ProtocolVersion -> aeAlg -> unit
+val keyGenClient: id -> id -> masterSecret -> StatefulLHAE.writer * StatefulLHAE.reader
+val keyGenServer: id -> id -> masterSecret -> StatefulLHAE.writer * StatefulLHAE.reader
+
+val makeVerifyData:  SessionInfo -> masterSecret -> Role -> bytes -> bytes
+val checkVerifyData: SessionInfo -> masterSecret -> Role -> bytes -> bytes -> bool
 
 val ssl_certificate_verify: SessionInfo -> masterSecret -> TLSConstants.sigAlg -> bytes -> bytes
-
-//#begin-coerce
-val coerce: SessionInfo -> repr -> masterSecret
-//#end-coerce

@@ -1,0 +1,53 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module AEAD_GCM
+
+open Bytes
+open Range
+open TLSInfo
+open Error
+open TLSError
+open TLSConstants
+
+type cipher = b:bytes{Length(b) <= max_TLSCipher_fragment_length}
+private type (;i:id)key = {kb:bytes}
+private type (;i:id)iv = {ivb:bytes}
+type counter = nat
+
+private type (;i:id,rw:rw)state = {key:(;i)key;
+              iv:(;i)iv;
+              counter:counter}
+
+type (;i:id)encryptor = (;i,Writer)state
+type (;i:id)decryptor = (;i,Reader)state
+
+function val NextEncryptor: i:id * (;i)encryptor -> 'a //(;i)encryptor
+private definition !i,k,iv,c. NextEncryptor(i,{key=k;iv=iv;counter=c}) = {key=k;iv=iv;counter=c+1}
+
+val GEN: i:id -> (;i)encryptor * (;i)decryptor
+val COERCE: i:id{not AuthId(i)} -> rw:rw -> bytes -> bytes -> (;i,rw)state
+val LEAK:   i:id{not AuthId(i)} -> rw:rw -> (;i,rw)state -> bytes
+
+predicate val ENCrypted: i:id * ad:(;i)LHAEPlain.adata * cipher * 'a -> bool
+
+val ENC: i:id -> e:(;i)encryptor -> ad:(;i)LHAEPlain.adata -> r:range -> p:(;i,ad,r)LHAEPlain.plain ->
+	( (e':(;i)encryptor{e'=NextEncryptor(i,e)}) *
+	  (c:cipher{(SafeId(i) => ENCrypted(i,ad,c,p)) /\
+			   Length(c) = TargetLength(i,r)}) )
+
+val DEC: i:id -> (;i)decryptor -> ad:(;i)LHAEPlain.adata -> r:range -> c:cipher ->
+	res: (((;i)decryptor * p:(;i,ad,r)LHAEPlain.plain) Result)
+	{SafeId(i) =>
+		( (!d,p. res = Correct((d,p)) => ENCrypted(i,ad,c,p)) /\
+		  (?p. ENCrypted(i,ad,c,p) => ?d. res = Correct((d,p)))
+		)}

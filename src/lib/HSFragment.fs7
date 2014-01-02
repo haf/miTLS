@@ -15,30 +15,30 @@ open Bytes
 open TLSInfo
 open Range
 
-private type (;ki:epoch,r:range) fragment = {frag: (;r)rbytes}
-private type (;ki:epoch) stream = {sb:bytes list}
+private type (;i:id,r:range) fragment = {frag: (;r)rbytes}
+private type (;i:id) stream = {sb:bytes list}
 
-predicate Sent of ki:epoch * (;ki) stream * r:range * (;ki,r)fragment
-assume !ki,s,r,f. Sent(ki,s,r,f)
+predicate Sent of i:id * (;i) stream * r:range * (;i,r)fragment
+assume !i,s,r,f. Sent(i,s,r,f)
 
-type (;e:epoch,s:(;e)stream,r:range)plain = f:(;e,r)fragment{Auth(e) => Sent(e,s,r,f)}
+type (;i:id,s:(;i)stream,r:range)plain = f:(;i,r)fragment{AuthId(i) => Sent(i,s,r,f)}
 
-function val Payload: e:epoch * r:range * (;e,r)fragment -> 'a // (;r)rbytes
-private definition !e,r,f. Payload(e,r,f) = f.frag
+function val Payload: i:id * r:range * (;i,r)fragment -> cbytes
+private definition !i,r,f. Payload(i,r,f) = B(f.frag)
 
-function val EmptyStream: e:epoch -> (;e)stream
-private definition !e. EmptyStream(e) = {sb = []}
-val init: e:epoch -> s:(;e)stream{s = EmptyStream(e)}
+function val EmptyStream: i:id -> (;i)stream
+private definition !i. EmptyStream(i) = {sb = []}
+val init: i:id -> s:(;i)stream{s = EmptyStream(i)}
 
-val fragmentPlain: ki:epoch -> r:range -> b:(;r) rbytes -> f:(;ki,EmptyStream(ki),r) plain{b = Payload(ki,r,f)}
-val fragmentRepr:  ki:epoch -> r:range -> f:(;ki,r) fragment -> b:(;r) rbytes{b = Payload(ki,r,f)}
+val fragmentPlain: i:id -> r:range -> b:(;r) rbytes -> f:(;i,EmptyStream(i),r) plain{B(b) = Payload(i,r,f)}
+val fragmentRepr:  i:id -> r:range -> f:(;i,r) fragment -> b:(;r) rbytes{B(b) = Payload(i,r,f)}
 
-val reStream: e:epoch -> s:(;e)stream -> r:range -> p:(;e,s,r)plain -> s':(;e)stream ->
-	p':(;e,s',r)plain{Payload(e,r,p) = Payload(e,r,p')}
+val reStream: i:id -> s:(;i)stream -> r:range -> p:(;i,s,r)plain -> s':(;i)stream ->
+	p':(;i,s',r)plain{Payload(i,r,p) = Payload(i,r,p')}
 
-val widen: e:epoch -> r0:range -> r1:range {r1 = RangeClass(e,r0)} ->
-    f0:(;e,r0)fragment -> f1:(;e,r1)fragment{Payload(e,r0,f0) = Payload(e,r1,f1) /\ !s. Sent(e,s,r0,f0) => Sent(e,s,r1,f1)}
+val widen: i:id -> r0:range -> r1:range {r1 = RangeClass(i,r0)} ->
+    f0:(;i,r0)fragment -> f1:(;i,r1)fragment{Payload(i,r0,f0) = Payload(i,r1,f1) /\ !s. Sent(i,s,r0,f0) => Sent(i,s,r1,f1)}
 
-function val Extend: e:epoch * s:(;e)stream * r:range * (;e,r)fragment -> 'a // (;e)stream
-private definition !ki,s,r,f. Extend(ki,s,r,f) = {sb = f.frag :: s.sb }
-val extend: e:epoch -> s:(;e)stream -> r:range -> f:(;e,r)fragment -> s':(;e)stream{s'=Extend(e,s,r,f)}
+function val Extend: i:id * s:(;i)stream * r:range * (;i,r)fragment -> 'a // (;i)stream
+private definition !i,s,r,f. Extend(i,s,r,f) = {sb = f.frag :: s.sb }
+val extend: i:id -> s:(;i)stream -> r:range -> f:(;i,r)fragment -> s':(;i)stream{s'=Extend(i,s,r,f)}

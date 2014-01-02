@@ -12,64 +12,196 @@
 
 module PRF
 
-(* PRFs keyed by master secrets, both for key derivation and verifyData *)
+// This module implements the PRFs keyed by master secrets,
+// for two purposes: MACing the verifyData and deriving the connection keys.
+// (CRE independently implements extraction.
+// TLS uses the same hash function based techniques for this,
+// i.e. PRFs keyed by pre master secrets.)
 
 open Bytes
+open TLSConstants
 open TLSInfo
 open StatefulLHAE
-
-type repr = (;48)lbytes
-//#begin-abstraction
-private type (;si:SessionInfo) masterSecret = {bytes: repr}
-//#end-abstraction
-
-function val Epochs: 'a -> 'b
-private definition !ci,r,e_in,e_out.
-	(ci = {role=Client;id_rand=r;id_in=e_in;id_out=e_out} /\
-	 Epochs(ci) = (ci.id_in,ci.id_out) ) \/
-	(ci = {role=Server;id_rand=r;id_in=e_in;id_out=e_out} /\
-	 Epochs(ci) = (ci.id_out,ci.id_in) )
-
-// AuthSI is defined in TLSInfo
-val sample: si:SessionInfo                            -> (;si)masterSecret
-//#begin-coerce
-val coerce: si:SessionInfo{not SafeHS_SI(si)} -> repr -> (;si)masterSecret
-//#end-coerce
 
 // Master secrets are used to derive key materials.
 // Compared with standard (non-tls) key derivation,
 // - the label is hardcoded & implicit;
-// - the seed (crandom @| srandom) is retrieved from the epoch
+// - the context/seed, i.e. (crandom @| srandom), is retrieved from the epoch
 
-val keyGen: ci:ConnectionInfo -> (;EpochSI(ci.id_out))masterSecret ->
-  ( w:(;ci.id_out)StatefulLHAE.writer *
-    r:(;ci.id_in) StatefulLHAE.reader )
-  { StatefulLHAE.History(ci.id_out,WriterState,w) = StatefulPlain.EmptyHistory(ci.id_out) /\
-    StatefulLHAE.History(ci.id_out,ReaderState,r) = StatefulPlain.EmptyHistory(ci.id_in)}
+type repr = (;48)lbytes
 
-private function val Fst: 'a -> 'b
-private function val Snd: 'a -> 'b
-private definition !e1,e2. Fst((e1,e2)) = e1
-private definition !e1,e2. Snd((e1,e2)) = e1
+//#begin-abstraction
+private type (;i:msId) ms = {bytes: repr}
 
-private val log:  (ems:(e12:(epoch * epoch)  * (;Fst(e12))masterSecret) *
-                   ((;Fst(Fst(ems)),ReaderState)state *
-                    (;Snd(Fst(ems)),WriterState)state)) list ref
-private val finish_log: (SessionInfo * bytes * bytes) list ref
+// This index additionally records the *local* session info.
+
+type (;si:SessionInfo) masterSecret = (;MsI(si)) ms
+//#end-abstraction
+
+// We have a double notion of conditional safety (logically defined in TLSInfo.fs7)
+// SafeVD for Finished messages, when the pms is ideal and hashAlg is strong and
+// SafeKDF for Key derivation, additionally requiring agreement on committed parameters.
+
+// Ideally, we maintain two logs
+// - all authentic Finished messages so far, to filter out forgeries in their "MAC verify".
+// - all safe connection keys generated so far, to share them with the second, matching ideal key derivation.
+
+(** Master secrets are either ideally sampled or concretely derived & coerced **)
+
+val sample: i:msId -> (;i)ms
+
+//#begin-coerce
+
+//the precondition of coerce excludes both idealizations.
+
+val coerce: i:msId {not HonestMS(i)} -> repr -> (;i)ms
+
+//#end-coerce
+
+(** Key derivation **)
+
+function val KeyExtensionLength: aeAlg -> nat
+definition (!mac.     KeyExtensionLength(MACOnly(mac)) = 2*MacKeySize(mac)) /\
+           (!enc,mac. KeyExtensionLength(MtE(enc,mac)) = 2*(EncKeySize(enc) + MacKeySize(mac) +
+                                                            LHAE.KeyDerivationIVSize(MtE(enc,mac))) )
+
+val keyExtensionLength: ae:aeAlg -> n:nat { n=KeyExtensionLength(ae) }
+
+type (;rdId:id,wrId:id) derived =
+  ( r:(;rdId) StatefulLHAE.reader * w:(;wrId)StatefulLHAE.writer )
+  { wrId = Swap(rdId) }
+//  { StatefulLHAE.History(ci.id_out,Reader,r) = StatefulPlain.EmptyHistory(ci.id_in) /\
+//	  StatefulLHAE.History(ci.id_out,Writer,w) = StatefulPlain.EmptyHistory(ci.id_out) }
+
+private val deriveRawKeys:
+  i: id -> (;i.msId)ms -> (;LHAE.KeySize(i.aeAlg)) lbytes * (;LHAE.KeySize(i.aeAlg)) lbytes
+
+private val deriveKeys:
+  rdId:id -> wrId:id {
+    wrId = Swap(rdId) /\
+    not AuthId(rdId) /\
+	not AuthId(wrId) (* needed to coerce to StatefulLHAE *) } ->
+  (;rdId.msId)ms -> Role -> (;rdId,wrId) derived
+
+// USAGE RESTRICTION:
+// For each CSR,
+// - the server linearly calls "keyCommit csr a" then "keyGenServer csr a" ...
+// - the client linearly calls "keyGenClient csr a"
+// - an ideal state machine (below) keeps track of both, to condition KDF idealization.
+//
+// The state machine has an implicit Init state as the csr has not been used yet by any
+// honest client or server, and otherwise records its state in a table indexed by csr.
+// Generating a fresh CR or a SR guarantees that we are initially in that state
+//
+// Note that we use CR @| SR, rather than SR @| CR as in the raw KDF call.
+
+// Calls to keyCommit and keyGenClient are treated as internal events of PRF.
+// SafeKDF specifically enables us to assume consistent algorithms for StAE.
+// (otherwise we would need some custom joint/cross ciphersuite/agile assumptions for StAE)
+//
+// predicate val SafeKDF: csr -> bool
+// definition SafeKDF(id) <=> HonestMS(id.msId) /\ StrongKDF(id.kdfAlg) /\
+//                            KeyCommit(id.csrConn,id.pv,id.aeAlg) /\ KeyGenClient(id.csrConn,id.pv,id.aeAlg)
+
+// See comments in the code as we assume Mismatch to reflect freshness assumptions.
+// we may also rely more finely on the log, to define Match
+// more precisely as " KeyCommit ; KeyGenClient " with no KeyGenServer in-between.
+type event = Mismatch of id
+private theorem !id. Mismatch(id) => not AuthId(id)
+
+type (;csr: csrands) state =
+  | Init
+  | Committed of pv:ProtocolVersion * ae:aeAlg { KeyCommit(csr,pv,ae) }
+  // The server has committed to using at most this algorithmn with this csr.
+  // -------->
+  | Derived of rdId:id * wrId:id * (;rdId,wrId) derived
+  // the client has ideally derived keys for both roles,
+  // with the same algorithm, recording the keys for the server.
+  // --only-->
+  //| Done
+  // the server has also derived keys (retrieving those recorded, or generating others).
+  // or he may have failed because of an aeAlg mismatch.
+
+  // No action allowed from this point.
+  //
+  // In all other cases, we reach a stable state such that we never idealize.
+  // We won't have SafeHS for this csr.
+  //| Wasted
+
+type kdentry = csr:csrands * (;csr) state
+val kdlog : kdentry list ref
+val read: csr:csrands -> kdentry list -> (;csr) state
+val update: csr:csrands -> (;csr) state -> kdentry  list -> kdentry list
+
+// Ideally, the server commits to using at most
+// an si with pv and aeAlg for keyGen with matching (si.cr,si.sr)
+
+// We could enforce commitments by adding a post-condition to keyCommit
+// and a matching pre-condition to the server-side keyGen.
+
+private val commit:
+  csr:csrands -> pv:ProtocolVersion -> ae:aeAlg { KeyCommit(csr,pv,ae) } -> (;csr) state
+
+private val wrap:
+  x: id -> y: id { y = Swap(x) } ->
+  r:(;y) StatefulLHAE.reader -> w:(;x)StatefulLHAE.writer ->
+  (;y,x) derived
+private val wrap2:
+  x: id -> y: id -> (;x,y) derived -> csr:csrands -> (;csr) state
+
+val keyCommit:
+  csrConn:csrands -> pv:ProtocolVersion -> ae:aeAlg ->
+  unit { KeyCommit(csrConn,pv,ae) }
+
+val keyGenClient:
+  rdId: id -> wrId: id { wrId = Swap(rdId) } ->
+  (;rdId.msId)ms -> (;rdId,wrId) derived  { KeyGenClient(rdId.csrConn,rdId.pv,rdId.aeAlg) }
+
+val keyGenServer:
+  rdId: id -> wrId: id { wrId = Swap(rdId) } ->
+  (;rdId.msId)ms -> (;rdId,wrId) derived
+
+(** VerifyData authenticator in Finished messages **)
 
 // Master secrets are also used to generate and check verifyData tags,
 // providing conditional authentication of the (abstract) VerifyData predicate.
 
-predicate VerifyData of epoch * Role * bytes
+// We specify it as we do for MACs,
+// whereas we have a stronger PRF assumption.
 
-val makeVerifyData: e:succEpoch ->
-  r:Role -> (;EpochSI(e)) masterSecret ->
-  log:bytes{VerifyData(e,r,log)} ->
-  bytes (* length depends on cs, 12 by default *)
+// Some verbatim handshake message log as text...
+// MACed into tags (with a fixed, irrelevant length)
 
-val checkVerifyData: e:succEpoch -> r:Role -> (;EpochSI(e)) masterSecret ->
-				   log:bytes (* the log *) ->
-				   tag:bytes (* the expected value *) ->
-				   b:bool{(b = true /\ SafeHS(e)) => VerifyData(e,r,log)}
+type text = bytes
+type tag = bytes
 
-val ssl_certificate_verify: si:SessionInfo -> (;si)masterSecret -> TLSConstants.sigAlg -> bytes -> bytes
+// Abstract predicate authenticated by the Finished messages.
+// (privately defined in Handshake.fs7)
+
+predicate VerifyData of msId * Role * text
+
+// role & text are jointly authenticated
+type entry = i:msId * r:Role * t:text {VerifyData(i,r,t)}
+private val log: entry list ref
+private val mem: i:msId -> r:Role -> t:text -> entry list -> b:bool{ b=true => VerifyData(i,r,t) }
+//private val cons: si:SessionInfo -> tag -> r:Role -> t:text {VerifyData(si,r,t)} -> entry list -> entry list
+
+private val verifyData: si:SessionInfo -> (;si) masterSecret -> r:Role -> t:text -> tag
+
+// MACing
+val makeVerifyData:
+  si:SessionInfo -> (;si) masterSecret ->
+  r:Role -> t:text{VerifyData(MsI(si),r,t)} ->
+  tag (* length depends on cs, 12 by default *)
+
+// MAC verifying
+val checkVerifyData:
+  si:SessionInfo -> (;si) masterSecret ->
+  r:Role -> t:text -> tag:tag (* the expected value *) ->
+  b:bool{(b = true /\ SafeVD(si)) => VerifyData(MsI(si),r,t)}
+
+(** ad hoc SSL3-only function; untrusted. **)
+
+val ssl_certificate_verify:
+  si:SessionInfo -> (;si)masterSecret ->
+  TLSConstants.sigAlg -> bytes -> bytes

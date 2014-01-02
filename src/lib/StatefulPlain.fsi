@@ -15,6 +15,7 @@ open Bytes
 open TLSConstants
 open TLSInfo
 open Range
+open TLSError
 
 type adata = bytes
 
@@ -24,19 +25,18 @@ type history  = (nat * prehistory)
 type plain = fragment
 
 //------------------------------------------------------------------------------
-val plain: epoch -> history -> adata -> range -> bytes -> plain
-val reprFragment:  epoch -> adata -> range -> fragment -> bytes
-val repr:  epoch -> history -> adata -> range -> plain -> bytes
+val plain: id -> history -> adata -> range -> bytes -> plain Result
+val reprFragment:  id -> adata -> range -> fragment -> bytes
+val repr:  id -> history -> adata -> range -> plain -> bytes
 
 //------------------------------------------------------------------------------
-val emptyHistory: epoch -> history
-val extendHistory: epoch -> adata -> history -> range -> fragment -> history
+val emptyHistory: id -> history
+val extendHistory: id -> adata -> history -> range -> fragment -> history
 
-val makeAD: epoch -> ContentType -> adata
-val parseAD: epoch -> adata -> ContentType
-val RecordPlainToStAEPlain: epoch -> ContentType -> TLSFragment.history -> history -> range -> TLSFragment.plain -> plain
-val StAEPlainToRecordPlain: epoch -> ContentType -> TLSFragment.history -> history -> range -> plain -> TLSFragment.plain
+val makeAD: id -> ContentType -> adata
+val RecordPlainToStAEPlain: epoch -> ContentType -> adata -> TLSFragment.history -> history -> range -> TLSFragment.plain -> plain
+val StAEPlainToRecordPlain: epoch -> ContentType -> adata -> TLSFragment.history -> history -> range -> plain -> TLSFragment.plain
 
 #if ideal
-val widen: epoch -> adata -> range -> fragment -> fragment
+val widen: id -> adata -> range -> fragment -> fragment
 #endif

@@ -14,14 +14,16 @@ module TLSExtensions
 
 open Bytes
 open Error
+open TLSError
 open TLSConstants
+open TLSInfo
 
 type extensionType
 
-val extensionsBytes: bool -> bytes -> bytes
+val extensionsBytes: config -> bytes -> bool -> bytes
 val parseExtensions: bytes -> (extensionType * bytes) list Result
-val inspect_ServerHello_extensions: (extensionType * bytes) list -> bytes -> unit Result
-val checkClientRenegotiationInfoExtension: (extensionType * bytes) list -> TLSConstants.cipherSuites -> bytes -> bool
+val inspect_ServerHello_extensions: config -> (extensionType * bytes) list -> bytes -> bool Result
+val inspect_ClientHello_extensions: config -> (extensionType * bytes) list -> TLSConstants.cipherSuites -> bytes -> bool Result
 
 val sigHashAlgBytes: Sig.alg -> bytes
 val parseSigHashAlg: bytes -> Sig.alg Result

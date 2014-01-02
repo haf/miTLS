@@ -14,6 +14,7 @@ module TLSConstants
 
 open Bytes
 open Error
+open TLSError
 
 (* Not abstract, but meant to be used only by crypto modules and CipherSuites *)
 
@@ -65,7 +66,7 @@ type aeadAlg =
     | AES_128_GCM
     | AES_256_GCM
 
-type authencAlg =
+type aeAlg =
     | MACOnly of macAlg
     | MtE of encAlg * macAlg
     | AEAD of aeadAlg * macAlg
@@ -79,20 +80,11 @@ val encKeySize: encAlg -> nat
 val blockSize: blockCipher -> nat
 val aeadKeySize: aeadAlg -> nat
 val aeadIVSize: aeadAlg -> nat
+val aeadRecordIVSize: aeadAlg -> nat
+val aeadTagSize: aeadAlg -> nat
+val hashSize: hashAlg -> nat
 val macKeySize: macAlg -> nat
 val macSize: macAlg -> nat
-
-(* SSL/TLS Constants *)
-val ssl_pad1_md5: bytes
-val ssl_pad2_md5: bytes
-val ssl_pad1_sha1: bytes
-val ssl_pad2_sha1: bytes
-val ssl_sender_client: bytes
-val ssl_sender_server: bytes
-val tls_sender_client: string
-val tls_sender_server: string
-val tls_master_secret: string
-val tls_key_expansion: string
 
 type cipherSuite
 
@@ -115,11 +107,28 @@ val isDHCipherSuite: cipherSuite -> bool
 val isDHECipherSuite: cipherSuite -> bool
 val isRSACipherSuite: cipherSuite -> bool
 val contains_TLS_EMPTY_RENEGOTIATION_INFO_SCSV: cipherSuites -> bool
+
+type prflabel = bytes
+val extract_label: prflabel
+val kdf_label: prflabel
+
+type prfAlg' =
+  | CRE_SSL3_nested                   // MD5(SHA1(...)) for extraction and keygen
+  | CRE_TLS_1p01 of prflabel          // MD5 xor SHA1
+  | CRE_TLS_1p2 of prflabel * macAlg  // typically SHA256 but may depend on CS
+
+type creAlg = prfAlg'
+type prfAlg = ProtocolVersion * cipherSuite
+type kdfAlg = prfAlg
+type vdAlg = prfAlg
+
 val verifyDataLen_of_ciphersuite: cipherSuite -> nat
 val prfMacAlg_of_ciphersuite: cipherSuite -> macAlg
 val verifyDataHashAlg_of_ciphersuite: cipherSuite -> hashAlg
 
-val authencAlg_of_ciphersuite: cipherSuite -> ProtocolVersion -> authencAlg
+val aeAlg: cipherSuite -> ProtocolVersion -> aeAlg
+val macAlg_of_aeAlg: aeAlg -> macAlg
+val encAlg_of_aeAlg: aeAlg -> encAlg
 val macAlg_of_ciphersuite: cipherSuite -> ProtocolVersion -> macAlg
 val encAlg_of_ciphersuite: cipherSuite -> ProtocolVersion -> encAlg
 val sigAlg_of_ciphersuite: cipherSuite -> sigAlg
@@ -133,8 +142,6 @@ val cipherSuiteBytes: cipherSuite -> bytes
 val parseCipherSuite: bytes -> cipherSuite Result
 val parseCipherSuites: bytes -> cipherSuites Result
 val cipherSuitesBytes: cipherSuites -> bytes
-
-val getKeyExtensionLength: ProtocolVersion -> cipherSuite -> nat
 
 (* Not for verification, just to run the implementation *)
 
@@ -169,6 +176,19 @@ type cipherSuiteName =
     | TLS_DH_anon_WITH_AES_256_CBC_SHA
     | TLS_DH_anon_WITH_AES_128_CBC_SHA256
     | TLS_DH_anon_WITH_AES_256_CBC_SHA256
+
+    | TLS_RSA_WITH_AES_128_GCM_SHA256
+    | TLS_RSA_WITH_AES_256_GCM_SHA384
+    | TLS_DHE_RSA_WITH_AES_128_GCM_SHA256
+    | TLS_DHE_RSA_WITH_AES_256_GCM_SHA384
+    | TLS_DH_RSA_WITH_AES_128_GCM_SHA256
+    | TLS_DH_RSA_WITH_AES_256_GCM_SHA384
+    | TLS_DHE_DSS_WITH_AES_128_GCM_SHA256
+    | TLS_DHE_DSS_WITH_AES_256_GCM_SHA384
+    | TLS_DH_DSS_WITH_AES_128_GCM_SHA256
+    | TLS_DH_DSS_WITH_AES_256_GCM_SHA384
+    | TLS_DH_anon_WITH_AES_128_GCM_SHA256
+    | TLS_DH_anon_WITH_AES_256_GCM_SHA384
 
 val cipherSuites_of_nameList: cipherSuiteName list -> cipherSuites
 val name_of_cipherSuite: cipherSuite -> cipherSuiteName Result

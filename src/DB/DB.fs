@@ -15,7 +15,7 @@ module DB
 open System
 open System.Data
 
-#if mono
+#if __MonoSQL__
 open Mono.Data.Sqlite
 type SQLiteConnection = SqliteConnection
 #else
@@ -32,7 +32,7 @@ module Internal =
     let wrap (cb : unit -> 'a) =
         try  cb ()
         with exn ->
-            Console.Error.WriteLine(exn.Message);
+            fprintfn stderr "DBError: %s" exn.Message;
             raise (DBError (exn.ToString()))
 
     let opendb (filename : string) =

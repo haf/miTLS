@@ -15,6 +15,7 @@ module RPC
 open Bytes
 open TLSInfo
 open Error
+open TLSError
 open Range
 open Dispatch
 open TLS
@@ -42,11 +43,12 @@ let config = {
 
     (* Common *)
     TLSInfo.safe_renegotiation = true
+    TLSInfo.extended_padding = false
     TLSInfo.server_name = "RPC server"
     TLSInfo.client_name = "RPC client"
 
     TLSInfo.sessionDBFileName = "sessionDBFile.bin"
-    TLSInfo.sessionDBExpiry = Bytes.newTimeSpan 2 0 0 0 (* two days *)
+    TLSInfo.sessionDBExpiry = Date.newTimeSpan 2 0 0 0 (* two days *)
 }
 
 let msglen = 128
@@ -133,7 +135,7 @@ let recvMsg = fun conn ->
                     Some (conn, buffer)
 
     in
-        doit conn [||]
+        doit conn empty_bytes
 
 let doclient (request : string) =
     let ns      = Tcp.connect "127.0.0.1" 5000 in
@@ -144,12 +146,12 @@ let doclient (request : string) =
     | DRClosed _ -> None
 
     | DRContinue conn ->
-        let nonce   = random 2 in
+        let nonce   = Nonce.random 2 in
         let request = request_bytes nonce (Bytes.utf8 request) in
 
         let msg =
             DataStream.createDelta
-                (Dispatch.getEpochOut conn) (TLS.getOutStream conn)
+                ((Dispatch.getEpochOut conn)) (TLS.getOutStream conn)
                 (Bytes.length request, Bytes.length request) request in
 
         match sendMsg conn (Bytes.length request, Bytes.length request) msg with
@@ -194,7 +196,7 @@ let doserver () =
 
                         let msg =
                             DataStream.createDelta
-                                (Dispatch.getEpochOut conn) (TLS.getOutStream conn)
+                                ((Dispatch.getEpochOut conn)) (TLS.getOutStream conn)
                                 (Bytes.length response, Bytes.length response) response in
 
                         match sendMsg conn (Bytes.length response, Bytes.length response) msg with

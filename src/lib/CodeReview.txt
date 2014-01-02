@@ -1,0 +1,212 @@
+April 3. 2013
+-------------
+
+Current status for each file.
+"OK" means verifying with #ideal flag.
+"Trusted" means we rely on the .fs7 but only rely on F# typechecking
+
+TODO: rediscuss the other two "avoid" and "verify" flags.
+
+Error:            OK
+    
+Bytes:            Trusted, including base formatting spec (Length etc)
+Nonce:            Trusted (Contains new operator)
+    We rely on freshness, but for side conditions, not for typing.
+
+DER:              Trusted 
+Tcp:              Trusted
+TLSConstants:     FAIL
+    Known problem with List.exists.
+	KB to move the failing query on list subsetting, e.g. to Bytes. 
+
+RSAKey:           Trusted
+    TODO cleanup compromise model as we patch Cert
+DHGroup:          Trusted
+HASH:             OK (F# only)
+HMAC:             OK (F# only)
+TLSPRF:           Trusted
+    We are not trusting much here (typically byte lenghts);
+	the crypto security assumptions are in modules below
+
+Sig:              FAIL 
+    TODO KB (MK)
+	sigskey not found in typing env
+	this is a scoping bug in F7.
+
+Cert:             Trusted
+    To be eventually done properly (at least ideally).
+
+TLSInfo:          OK
+Range:            FAIL 
+    TODO AP: BlockAligned and CipherRangeClass definitions are not enough
+
+DataStream:       OK
+AppFragment:      OK
+HSFragment:       OK
+TLSFragment:      OK
+StatefulPlain:    OK
+LHAEPlain:        OK
+MAC_SHA256:       OK
+MAC_SHA1:         OK
+MAC:              OK
+Encode:           OK
+    We still need to review our defenses against timing attacks. 
+
+ENC_RC4:          TODO
+    TODO CF: rename to ENC_SALSA, so that we do not suggest that RC4 is secure. Or maybe CPA after Finished?? 
+
+ENC:              TODO
+	CF & AP: we need to complete crypto-agility there, as done for MAC and MAC_*; can do.
+
+LHAE:             OK
+StatefulLHAE:     OK
+Record:           OK
+Alert:            OK, but not supporting authentication yet. TODO after dispatch.
+
+PMS               Alomst done
+PRF:              Almost done
+CRE:              Almost done
+RSA:              FAIL (undeclared honest)
+	CF, MK: can you summarize the status for these files?
+	In progress: we are adapting the code towards more realistic indexes, will need to sync with KB, starting with RSA.
+
+SessionDB:        OK
+TLSExtensions:    Trusted for now. 
+    We'll probably restructure into a generic multiplexer and extension-specific modules (and move some of them up towards TLSInfo) before fully verifying it. For now we authenticate the blob plus critical extensions. 
+	
+Handshake:        TODO 
+    KB (AP). We only have RSA so far, we also need DH and resumption/renego.
+
+AppData:          OK
+Dispatch:         TODO 
+    AP (KB). We need stronger invariants; 
+	write side almost there, read side in progress.
+
+TLS:              OK
+    TODO PY then CF: check the refinements are enough for precise correspondence properties (a la symbolic CCS)
+
+PwToken:          OK
+UTLS:             OK
+PwApp:            FAIL (undeclared ServerKey)
+	PY to fix, and to add RPC. 
+
+
+Older stuff, largely ignored so far... feel free to merge with the text above.
+
+Oct 17,2012
+-----------
+Make a new TLSConstants.fs: TLSConstants + CipherSuites + HandshakeType + DataStream.max_TLS_plaintextLength
+
+----
+We could use another implementation of Bytes, with a more efficient representation
+This would help with performance but is not necessary for verification right now.
+
+type bytes = {v: byte[], start: int, len: int}
+
+
+Oct 11,2012
+-----------
+
+Pi.fs* - to be deleted
+
+Bytes,fs* - to be the first module (should it be called something else? It contains DataTime)
+(NOTE: Search for all instances of Array.* and replace by Bytes.* alternatives.)
+
+TCP, Bytes etc. be called .NET Wrappers? 
+	Cedric: Bytes is more than that; it deals with formats.
+
+------------------------------------------
+
+TLSConstants: concrete constants + types for Params (to move to Keys)
+
+Keys: concrete types for RSA keys, AES keys, DH Params?
+
+RSA.fs*: to delete
+
+HASH.fs*: wrapper for hash algorithms (to get code from Cert)
+
+HMAC.fs*: wrapper for HMAC algorithms (should it use Keys.mackey?)
+          add key generation functions, make the keys abstract (similar to Sig)
+
+	Cedric: what goes to HMAC vs MAC ?
+
+Sig.fs*: wrapper for DSA/RSA signatures
+
+	Cedric: we have two interpretations for chash:
+	    	- in fs7, this is meant to be the list of potential algs 
+			  usable with the key
+            - in fs, they are all applied, using multipleDigestion
+			So I believe sign and verify should take some hashAlg 
+			within as an extra parameter.
+
+SymEnc.fs*: move tdes, aes, rc4 encryption from Enc.fs
+            add keygeneration that can be used from Enc.Coerce and Enc.gen
+            Add XOR!!! (move from PRFs.fs)
+
+RsaEnc.fs*: move encrypt_pkcs* from RsaEnc to here
+            
+DHE.fs*: move here
+         DH.fs*: move here (and/or delete?)
+
+Cert.fs*: x.509 cert store, certificate validation
+
+	Cedric: we should discuss sometimes how to put back in Cert 
+	        what whas in HSK re: providing a uniform adversary 
+			interface for long-term keys.
+
+---------------------------------------------------
+TLS Specific
+
+CipherSuites: The equivalent of TLSConstants but for TLS (could be merged with algos, or kept separate)
+
+	Cedric: can we de-duplicate CipherSuiteName and CipherSuite?
+	        the latter is nicer & used for indexing, could be concrete.
+
+formats.fs*: Combine with Ciphersuites to get TLSFormats?
+             what to do with vlbytes? For now, maybe move to TLSFormats?
+
+	Cedric: No, formats is internal, ciphersuites is part of our TLS API.
+	Cedric: I'd prefer to have formatting code local to each module
+	        rather than in a single file.
+
+DataStream.*: untouched (DataStream2.fs7 is redundant, only for paper)
+
+IdealDataStream: .fs7 should be deleted and .fs should use module name DataStream
+
+Fragment.*: Can KB get rid of it? 
+
+MAC.*: abstract MACs
+
+RPCPlain.fs7: to be deleted
+
+------
+Record Protocol
+
+Encode.fs*: to be renamed to MACthenEncode.fs* 
+             This seems to be doing a lot, what can we verify? Where do we compute ranges?
+
+ENC.fs*: then Encrypt
+ 
+LHAEPlain.fs*: Maybe KB can get rid of it?
+
+LHAE.fs*: Wrapper around both MacThenEncrypt and GCM/CCM and MACOnly
+          (Implements LH-AEAD)
+
+StatefulPlain.*: Adds histories
+StatefulLHAE.* : Corresponds to SLH-AEAD
+
+TLSFragment: Multiplexing (when to use deltas in upper layer protocols?)
+
+record.fs: (Merge TLSFragment and record into TLSRecord?)
+
+----------
+
+Alert: needs cleaning up for streams and length-hiding fragmentation
+
+RSAPlain: rename to RSAPMS
+
+PRFS: make one Common module for prf function,
+      and split applications into multiple modules: One for MasterSecret (Smooth), One for VerifyData, One for KeyGen, one for SSLVerify
+      move makeTimeStamp to .NET Wrappers
+
+AppData: Can it be deleted?

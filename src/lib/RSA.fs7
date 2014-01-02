@@ -12,27 +12,52 @@
 
 module RSA
 
-// RSA asymmetric encryption & decryption, used for PMS
-// we currently exclude RSA keys used both for signing and decryption
+// RSA encryption & decryption of the PMS
 
 open Bytes
 open Error
-open RSAKey
+open TLSError
 open TLSConstants
 open TLSInfo
+open RSAKey
+
+// We currently exclude RSA keys used both for signing and decryption
 
 // For concrete security, see also
-// On the Security of RSA Encryption in TLS
+// "On the Security of RSA Encryption in TLS",
 // Jakob Jonsson and Burton S. Kaliski Jr.
 // http://www.iacr.org/archive/crypto2002/24420127/24420127.pdf
 
-predicate EncryptedRSAPMS of pk:pk * pv:ProtocolVersion * (;pk,pv)CRE.rsapms * bytes
+val encrypt:
+  pk:pk -> cv:ProtocolVersion -> pms:(;pk,cv) PMS.rsapms ->
+  b:bytes {PMS.EncryptedRSAPMS(pk,cv,pms,b)}
 
-val encrypt: pk:pk -> pv:ProtocolVersion -> pms:(;pk,pv) CRE.rsapms -> b:bytes{EncryptedRSAPMS(pk,pv,pms,b) /\ HonestRSAPMS(pk,pv,b)}
-// TLS specific, timing-attack-resistant variant
-val decrypt: sk ->
-  	     si:SessionInfo ->
-             cv:TLSConstants.ProtocolVersion -> (* highest client version, as above *)
-             bool -> (* flag whether we should check protocol version in old TLS versions *)
-             bytes -> (* encrypted PMS *)
-			 (;Cert.RSAPKCert(si.serverID),cv) CRE.rsapms (* No Result type: in case of error, we return a fresh random PMS *)
+val decrypt:
+  sk -> si:SessionInfo ->
+  cv:ProtocolVersion -> (* highest client version *)
+  bool -> (* flag whether we should check protocol version in old TLS versions *)
+  bytes -> (* encrypted PMS *)
+  (;Cert.RSAPKCert(si.serverID),cv) PMS.rsapms (* no Result type: instead of an error, we return a fresh Nonce.random PMS *)
+
+// This is not just plain RSA_PKCS1 decryption.
+// We put in place timing attack countermeasures.
+// See RFC 5246, section 7.4.7.1
+
+// The rest of the interface is internal to RSA.fs
+
+// Ideally, we add an indirection from a fresh dummy pms to the ideal pms (before encryption)
+// and we maintain a table to undo it (after concrete decryption)
+
+type entry = pk:pk * cv:ProtocolVersion * PMS.rsarepr * (;pk,cv) PMS.rsapms
+private val log: entry list ref
+private val assoc:
+  pk:RSAKey.pk -> pv:ProtocolVersion -> dummy_pms:bytes -> entry list -> (;pk,pv)PMS.rsapms option
+
+// Concrete decryption with TLS-specific countermeasures against
+// protocol regression, Bleichenbacher, and related timing attacks
+private val real_decrypt:
+  sk -> si:SessionInfo ->
+  cv:ProtocolVersion -> (* highest client version *)
+  cv_check:bool -> (* flag whether we should check protocol version in old TLS versions *)
+  ct:bytes -> (* encrypted PMS *)
+  pmsb:PMS.rsarepr { cv_check=true => ?b. B(pmsb) = VersionBytes(cv) @| b} (* No Result type: in case of error, we return a fresh Nonce.random PMS *)

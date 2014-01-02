@@ -11,6 +11,7 @@
  *)
 
 module CoreSig
+open Bytes
 
 (* ------------------------------------------------------------------------ *)
 open System
@@ -31,8 +32,8 @@ type sighash =
 | SH_SHA384
 
 type sigalg =
-| SA_RSA
-| SA_DSA
+| CORE_SA_RSA
+| CORE_SA_DSA
 
 (* ------------------------------------------------------------------------ *)
 type sigskey =
@@ -43,21 +44,21 @@ type sigpkey =
 | PK_RSA of CoreKeys.rsapkey
 | PK_DSA of CoreKeys.dsapkey
 
-type text = byte[]
-type sigv = byte[]
+type text = bytes
+type sigv = bytes
 
 (* ------------------------------------------------------------------------ *)
 let sigalg_of_skey = function
-    | SK_RSA _ -> SA_RSA
-    | SK_DSA _ -> SA_DSA
+    | SK_RSA _ -> CORE_SA_RSA
+    | SK_DSA _ -> CORE_SA_DSA
 
 let sigalg_of_pkey = function
-    | PK_RSA _ -> SA_RSA
-    | PK_DSA _ -> SA_DSA
+    | PK_RSA _ -> CORE_SA_RSA
+    | PK_DSA _ -> CORE_SA_DSA
 
 (* ------------------------------------------------------------------------ *)
-let bytes_to_bigint (b : byte[]) = new BigInteger(1, b)
-let bytes_of_bigint (b : BigInteger) = b.ToByteArrayUnsigned()
+let bytes_to_bigint (b : bytes) = new BigInteger(1, cbytes b)
+let bytes_of_bigint (b : BigInteger) = abytes (b.ToByteArrayUnsigned())
 
 (* ------------------------------------------------------------------------ *)
 let new_hash_engine (h : sighash option) : IDigest =
@@ -81,15 +82,15 @@ let RSA_sign ((m, e) : CoreKeys.rsaskey) (h : sighash option) (t : text) : sigv 
     let signer = new_rsa_signer h in
 
     signer.Init(true, new RsaKeyParameters(true, bytes_to_bigint m, bytes_to_bigint e))
-    signer.BlockUpdate(t, 0, t.Length)
-    signer.GenerateSignature()
+    signer.BlockUpdate(cbytes t, 0, length t)
+    abytes (signer.GenerateSignature())
 
 let RSA_verify ((m, e) : CoreKeys.rsapkey) (h : sighash option) (t : text) (s : sigv) =
     let signer = new_rsa_signer h in
 
     signer.Init(false, new RsaKeyParameters(false, bytes_to_bigint m, bytes_to_bigint e))
-    signer.BlockUpdate(t, 0, t.Length)
-    signer.VerifySignature(s)
+    signer.BlockUpdate(cbytes t, 0, length t)
+    signer.VerifySignature(cbytes s)
 
 let RSA_gen () =
     let generator = new RsaKeyPairGenerator() in
@@ -114,8 +115,8 @@ let DSA_sign ((x, dsap) : CoreKeys.dsaskey) (h : sighash option) (t : text) : si
                                       bytes_to_bigint dsap.g)
 
     signer.Init(true, new DsaPrivateKeyParameters(bytes_to_bigint x, dsaparams))
-    signer.BlockUpdate(t, 0, t.Length)
-    signer.GenerateSignature()
+    signer.BlockUpdate(cbytes t, 0, length t)
+    abytes (signer.GenerateSignature())
 
 let DSA_verify ((y, dsap) : CoreKeys.dsapkey) (h : sighash option) (t : text) (s : sigv) =
     let signer    = new DsaDigestSigner(new DsaSigner(), new_hash_engine h) in
@@ -124,8 +125,8 @@ let DSA_verify ((y, dsap) : CoreKeys.dsapkey) (h : sighash option) (t : text) (s
                                       bytes_to_bigint dsap.g)
 
     signer.Init(false, new DsaPublicKeyParameters(bytes_to_bigint y, dsaparams))
-    signer.BlockUpdate(t, 0, t.Length)
-    signer.VerifySignature(s)
+    signer.BlockUpdate(cbytes t, 0, length t)
+    signer.VerifySignature(cbytes s)
 
 let DSA_gen () =
     let paramsgen = new DsaParametersGenerator() in
@@ -155,5 +156,5 @@ let verify (ahash : sighash option) (pk : sigpkey) (t : text) (s : sigv) =
 (* ------------------------------------------------------------------------ *)
 let gen (a : sigalg) : sigpkey * sigskey =
     match a with
-    | SA_RSA   -> RSA_gen ()
-    | SA_DSA   -> DSA_gen ()
+    | CORE_SA_RSA   -> RSA_gen ()
+    | CORE_SA_DSA   -> DSA_gen ()

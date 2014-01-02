@@ -18,6 +18,7 @@ open DHGroup
 // "Strong" parameter generation used by compliant servers,
 // formally a precondition for signing them with an honest key.
 predicate val PP: p:p * g:(;p) g -> bool
+private val goodPP: p:p * g:(;p) g -> bool
 
 //#begin-abstraction
 type (;p:p,g:(;p)g,gx:(;p)elt) secret
@@ -31,6 +32,6 @@ predicate HonestExponent of p:p * g:(;p)g * gx:(;p)elt
 val genKey: p:p -> g: (;p) g -> gx:(;p) elt * (;p,g,gx) secret{
   HonestExponent(p,g,gx)}
 
-val exp: p:p -> g:(;p)g -> gx:(;p) elt -> gy:(;p) elt -> x:(;p,g,gx) secret -> res:(;p,g,gx,gy) CRE.dhpms{
+val exp: p:p -> g:(;p)g -> gx:(;p) elt -> gy:(;p) elt -> x:(;p,g,gx) secret -> res:(;p,g,gx,gy) PMS.dhpms{
   HonestExponent(p,g,gx) /\ HonestExponent(p,g,gy) =>
-    TLSInfo.HonestDHPMS(p,g,gx,gy)}
+    TLSInfo.HonestDHPMSData(p,g,gx,gy)}

@@ -13,9 +13,11 @@
 module Alert
 
 open Error
+open TLSError
 open TLSInfo
 open Range
 
+[<NoEquality;NoComparison>]
 type pre_al_state
 type state = pre_al_state
 
@@ -25,6 +27,7 @@ type ALFragReply =
     | LastALFrag of range * HSFragment.fragment * alertDescription
     | LastALCloseFrag of range * HSFragment.fragment
 
+[<NoEquality;NoComparison>]
 type alert_reply =
     | ALAck of state
     | ALFatal of alertDescription * state

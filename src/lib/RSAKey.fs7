@@ -20,20 +20,26 @@ module RSAKey
 
 open Bytes
 
-type sk (* secret (decryption) key, abstract *)
+type sk (* secret (decryption) key, abstract for honest keys *)
 type pk (* public (encryption) key, abstract but bytes are accessible *)
 
 type modulus  = bytes
 type exponent = bytes
 
-(* Used in specifications *)
-function val PK: sk -> pk
-predicate Honest of pk
+(* Used only for specification *)
 
+predicate Honest of pk
+val honest: pk:pk -> b:bool {b=true <=> Honest(pk)}
+
+function val PK: sk -> pk
 val gen: unit -> p:pk * s:sk {p = PK(s)}
 
-val pkey: CoreACiphers.pk -> pk
-val pkey_repr:  pk -> CoreACiphers.pk
+val pkey:      CoreACiphers.pk -> pk
+val pkey_repr: pk -> CoreACiphers.pk
 
-val coerce: p:pk {not Honest(p)} -> CoreACiphers.sk -> s:sk{p = PK(s)}
+val coerce: p:pk {not Honest(p)}     -> CoreACiphers.sk -> s:sk{p = PK(s)}
 val leak:   s:sk {not Honest(PK(s))} -> CoreACiphers.sk
+
+// those are morally private, used only in RSA.fs
+val repr_of_rsapkey : pk -> CoreACiphers.pk
+val repr_of_rsaskey : sk -> CoreACiphers.sk

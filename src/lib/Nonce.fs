@@ -13,21 +13,25 @@
 module Nonce
 
 open Bytes
+open Error
 
 #if ideal
 let log = ref []
 #endif
 
-open System
+let timestamp () = bytes_of_int 4 (Date.secondsFromDawn ())
 
-let dawn = new System.DateTime(1970, 1, 1)
-let timestamp () = bytes_of_int 4 ((int32) (DateTime.UtcNow - dawn).TotalSeconds)
+let random (n:nat) =
+  let r = CoreRandom.random n in
+  let l = length r in
+  if l = n then r
+  else unexpected "CoreRandom.random returned incorrect number of bytes"
 
 let rec mkHelloRandom(): bytes =
     let Cr = timestamp() @| random 28
     //#begin-idealization
     #if ideal
-    if memr !log Cr then
+    if List.memr !log Cr then
         mkHelloRandom () // we formally retry to exclude collisions.
     else
         log := Cr::!log
@@ -35,3 +39,5 @@ let rec mkHelloRandom(): bytes =
     #else //#end-idealization
     Cr
     #endif
+
+let noCsr = random 64

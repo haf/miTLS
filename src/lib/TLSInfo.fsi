@@ -13,7 +13,12 @@
 module TLSInfo
 
 open Bytes
+open Date
 open TLSConstants
+
+type rw =
+    | Reader
+    | Writer
 
 type sessionID = bytes
 type preRole =
@@ -25,11 +30,21 @@ type Role = preRole
 type random = bytes
 type crand = random
 type srand = random
+type csrands = bytes
+
+type pmsId
+val pmsId: PMS.pms -> pmsId
+val noPmsId: pmsId
 
 type pmsData =
     | PMSUnset
     | RSAPMS of RSAKey.pk * ProtocolVersion * bytes
     | DHPMS  of DHGroup.p * DHGroup.g * DHGroup.elt * DHGroup.elt
+
+type msId =
+  pmsId *
+  csrands *
+  creAlg
 
 type SessionInfo = {
     init_crand: crand;
@@ -37,6 +52,7 @@ type SessionInfo = {
     protocol_version: ProtocolVersion;
     cipher_suite: cipherSuite;
     compression: Compression;
+    pmsId: pmsId;
     pmsData: pmsData;
     client_auth: bool;
     clientID: Cert.cert list;
@@ -46,13 +62,44 @@ type SessionInfo = {
     extended_record_padding: bool;
     }
 
+val csrands: SessionInfo -> bytes
+val prfAlg: SessionInfo -> prfAlg
+val creAlg: SessionInfo -> creAlg
+val kdfAlg: SessionInfo -> kdfAlg
+val vdAlg: SessionInfo -> vdAlg
+val msi: SessionInfo -> msId
+
+type id = {
+  // indexes and algorithms of the session used in the key derivation
+  msId   : msId;   // the index of the master secret used for key derivation
+  kdfAlg : kdfAlg; // the KDF algorithm used for key derivation
+  pv: ProtocolVersion; //Should be part of aeAlg
+  aeAlg  : aeAlg;  // the authenticated-encryption algorithms
+  csrConn: csrands;
+  writer : Role;
+  extPad : bool;
+  }
+
+val macAlg_of_id: id -> macAlg
+val encAlg_of_id: id -> encAlg
+val pv_of_id: id -> ProtocolVersion
+
 type preEpoch
 type epoch = preEpoch
+
+type event =
+  | KeyCommit of    csrands * ProtocolVersion * aeAlg
+  | KeyGenClient of csrands * ProtocolVersion * aeAlg
+  | SentCCS of Role * epoch
+
+val id: epoch -> id
+val unAuthIdInv: id -> epoch
 
 val isInitEpoch: epoch -> bool
 val epochSI: epoch -> SessionInfo
 val epochSRand: epoch -> srand
 val epochCRand: epoch -> crand
+val epochCSRands: epoch -> crand
 
 // Role is of the writer
 type ConnectionInfo =
@@ -91,6 +138,7 @@ type config = {
 
     (* Common *)
     safe_renegotiation: bool
+    extended_padding: bool
     server_name: Cert.hint
     client_name: Cert.hint
 
@@ -105,9 +153,16 @@ val max_TLSCipher_fragment_length: nat
 val fragmentLength: nat
 
 #if ideal
-val safe: epoch -> bool
+val honestPMS: pmsId -> bool
+
 val safeHS: epoch -> bool
+val safeCRE: SessionInfo -> bool
+val safeVD: SessionInfo -> bool
+val safeHS_SI: SessionInfo -> bool
 val auth: epoch -> bool
-val safeMAC: epoch -> bool
-val safeENC: epoch -> bool
+
+val safeKDF: id -> bool
+val safe: epoch -> bool
+val authId: id -> bool
+val safeId : id -> bool
 #endif

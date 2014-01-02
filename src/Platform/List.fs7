@@ -1,0 +1,34 @@
+(*
+ * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * 
+ * This code is distributed under the terms for the CeCILL-B (version 1)
+ * license.
+ * 
+ * You should have received a copy of the CeCILL-B (version 1) license
+ * along with this program.  If not, see:
+ * 
+ *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
+ *)
+
+module List
+
+open Bytes
+
+function val ListLength: 'a list -> nat
+assume ListLength(op_Nil()) = 0
+assume !x,y. ListLength(op_ColonColon(x,y)) = 1 + ListLength(y)
+assume !l. BLength(array_of_list(l)) = ListLength(l)
+
+function val Unfold: bytes * bytes list -> bytes
+function val UnfoldBack: bytes list * bytes -> bytes
+val fold:     (bytes -> bytes -> bytes) -> s:bytes -> bl:bytes list -> b:bytes{b=Unfold(s,bl)}
+val filter: ('a -> bool) -> 'a list -> 'a list
+val foldBack: (bytes -> bytes -> bytes) -> bl:bytes list -> s:bytes -> b:bytes{b=UnfoldBack(bl,s)}
+val exists: ('a -> bool) -> 'a list -> bool
+val memr: 'a list -> 'a -> bool
+val choose: ('a -> 'b option) -> 'a list -> 'b list
+val tryFind: ('a -> bool) -> 'a list -> 'a option
+val listLength: l:('a list) -> len:nat{ListLength(l)=len}
+val listHead: l:('a list){ListLength(l) > 0} -> 'a
+val find: ('a -> bool) -> 'a list -> 'a
+val map: ('a -> 'b) -> 'a list -> 'b list

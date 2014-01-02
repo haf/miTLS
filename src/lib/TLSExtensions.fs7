@@ -14,49 +14,50 @@ module TLSExtensions
 
 open Bytes
 open Error
+open TLSError
 open TLSConstants
 
 private type extensionType =
     | HExt_renegotiation_info
 
-function val ExtensionTypeBytes: extensionType -> bytes
+function val ExtensionTypeBytes: extensionType -> cbytes
 private definition ExtensionTypeBytes(HExt_renegotiation_info) = [|0xFFuy; 0x01uy|]
 
-val extensionTypeBytes: et:extensionType -> b:bytes{b=ExtensionTypeBytes(et)}
-val parseExtensionType: b:bytes -> (et:extensionType{b=ExtensionTypeBytes(et)}) Result
+val extensionTypeBytes: et:extensionType -> b:bytes{B(b)=ExtensionTypeBytes(et)}
+val parseExtensionType: b:bytes -> (et:extensionType{B(b)=ExtensionTypeBytes(et)}) Result
 val isExtensionType: et:extensionType -> ext:(extensionType * bytes) ->
 	b:bool{b = true => (?et',d. ext=(et',d) /\ et = et')}
 
-function val ExtensionBytes: extensionType * bytes -> bytes
+function val ExtensionBytes: extensionType * cbytes -> cbytes
 private definition !et,b.
 	ExtensionBytes(et,b) = ExtensionTypeBytes(et) @| VLBytes(2,b)
-predicate ContainsExtensions of bytes * (extensionType * bytes) list
+predicate ContainsExtensions of cbytes * (extensionType * bytes) list
 
 private definition !b,l. ContainsExtensions(b,l)
 
-val extensionBytes: et:extensionType -> d:bytes -> b:bytes{b=ExtensionBytes(et,d)}
+val extensionBytes: et:extensionType -> d:bytes -> b:bytes{B(b)=ExtensionBytes(et,d)}
 val consExt: extensionType * bytes -> (extensionType * bytes) list -> (extensionType * bytes) list
 val parseExtensionList: b:bytes -> cur:(extensionType * bytes) list ->
-	(res:(extensionType * bytes) list{ContainsExtensions(b,res)}) Result
+	(res:(extensionType * bytes) list{ContainsExtensions(B(b),res)}) Result
 
 val renegotiationInfoExtensionBytes: vd:bytes ->
-	b:bytes{b=ExtensionBytes(HExt_renegotiation_info,VLBytes(1,vd))}
+	b:bytes{B(b)=ExtensionBytes(HExt_renegotiation_info,VLBytes(1,B(vd)))}
 val parseRenegotiationInfoExtension: b:bytes ->
-	(vd:bytes{b=VLBytes(1,vd)}) Result
+	(vd:bytes{B(b)=VLBytes(1,B(vd))}) Result
 
-function val ExtensionsBytes: bytes -> bytes
+function val ExtensionsBytes: cbytes -> cbytes
 private definition !b. ExtensionsBytes(b) = VLBytes(2,b)
 val extensionsBytes: en:bool -> vd:bytes ->
-	b:bytes{(en = true /\ b = ExtensionsBytes(ExtensionBytes(HExt_renegotiation_info,VLBytes(1,vd))) ) \/
-			(en = false /\ b = [||])}
+	b:bytes{(en = true /\ B(b) = ExtensionsBytes(ExtensionBytes(HExt_renegotiation_info,VLBytes(1,B(vd)))) ) \/
+			(en = false /\ b = empty_bytes)}
 
 val parseExtensions: b:bytes -> (res:(extensionType * bytes) list
-	{(b = [||] /\ res = [] ) \/
-	 (b <> [||] /\ ?ext. b = VLBytes(2,ext) /\ ContainsExtensions(ext,res) )
+	{(b = empty_bytes /\ res = [] ) \/
+	 (b <> empty_bytes /\ ?ext. B(b) = VLBytes(2,ext) /\ ContainsExtensions(ext,res) )
 	}) Result
 
 val check_reneg_info: got:bytes -> exp:bytes ->
-	b:bool{b=true => (?d. got = VLBytes(1,d) /\ exp = d)}
+	b:bool{b=true => (?d. B(got) = VLBytes(1,d) /\ exp = d)}
 
 val checkClientRenegotiationInfoExtension:
 	(extensionType * bytes) list -> cipherSuites -> bytes -> bool
@@ -66,15 +67,15 @@ val inspect_ServerHello_extensions:
 		unit Result
 
 (* SignatureAndHashAlgorithm parsing functions *)
-function val SigHashAlgBytes: 'a  -> bytes
+function val SigHashAlgBytes: 'a  -> cbytes
 private definition !s,h. SigHashAlgBytes((s,h)) = HashAlgBytes(s) @| SigAlgBytes(h)
 
-val sigHashAlgBytes: a:Sig.alg -> b:bytes{b=SigHashAlgBytes(a)}
-val parseSigHashAlg: b:bytes -> (a:Sig.alg{b=SigHashAlgBytes(a)}) Result
+val sigHashAlgBytes: a:Sig.alg -> b:bytes{B(b)=SigHashAlgBytes(a)}
+val parseSigHashAlg: b:bytes -> (a:Sig.alg{B(b)=SigHashAlgBytes(a)}) Result
 
-function val SigHashAlgsBytes: Sig.alg list -> bytes
-val sigHashAlgListBytes: al:Sig.alg list -> b:bytes{b=SigHashAlgsBytes(al)}
-val parseSigHashAlgList: b:bytes -> (al:Sig.alg list{b=SigHashAlgsBytes(al)}) Result
+function val SigHashAlgsBytes: Sig.alg list -> cbytes
+val sigHashAlgListBytes: al:Sig.alg list -> b:bytes{B(b)=SigHashAlgsBytes(al)}
+val parseSigHashAlgList: b:bytes -> (al:Sig.alg list{B(b)=SigHashAlgsBytes(al)}) Result
 function val DefaultSigHashAlgs: ProtocolVersion * cipherSuite -> Sig.alg list
 val default_sigHashAlg: pv:ProtocolVersion -> cs:cipherSuite -> al:Sig.alg list{al=DefaultSigHashAlgs(pv,cs)}
 val sigHashAlg_contains: Sig.alg list -> Sig.alg -> bool

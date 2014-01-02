@@ -74,7 +74,8 @@ let parse_cmd () =
         servername  = defaultSN;
         clientname  = defaultCN;
         localaddr   = IPEndPoint(IPAddress.Loopback, defaultPort);
-        sessiondir  = Path.Combine(mypath, defaultDB); }
+        sessiondir  = Path.Combine(mypath, defaultDB);
+        extPad      = false; }
 
     let isclient = ref false
 
@@ -137,17 +138,21 @@ let parse_cmd () =
                 all;
             exit 2
 
+    let o_ext_pad () =
+        options := { !options with extPad = true }
+
     let specs =
         let specs = [
             "--sessionDB-dir", ArgType.String o_certdir    , sprintf "\tsession database directory (default `pwd`/%s)" defaultDB
-            "--port"         , ArgType.Int    o_port       , sprintf "\t\tserver port (default %d)" defaultPort
-            "--address"      , ArgType.String o_address    , "\tserver address (default localhost)"
+            "--port"         , ArgType.Int    o_port       , sprintf "\t\t\tserver port (default %d)" defaultPort
+            "--address"      , ArgType.String o_address    , "\t\tserver address (default localhost)"
             "--ciphers"      , ArgType.String o_ciphers    , sprintf "\t\t,-separated ciphers list (default %s)" (String.Join(",", defaultCS))
             "--tlsversion"   , ArgType.String o_version    , sprintf "\t\tTLS version to accept / propose (default %A)" defaultVer
             "--client-name"  , ArgType.String o_client_name, "\tTLS client name (default None, anonymous client)"
             "--server-name"  , ArgType.String o_server_name, (sprintf "\tTLS server name (default: %s)" defaultSN)
             "--list"         , ArgType.Unit   o_list       , "\t\t\tPrint supported version/ciphers and exit"
-            "--client"       , ArgType.Set    isclient     , "\t\tAsk as a client instead of a server" ]
+            "--client"       , ArgType.Set    isclient     , "\t\t\tRun as a client instead of a server"
+            "--extended-pad" , ArgType.Unit   o_ext_pad , "\t\tEnable extended record padding" ]
         in
             specs |> List.map (fun (sh, ty, desc) -> ArgInfo(sh, ty, desc))
 

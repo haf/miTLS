@@ -14,6 +14,7 @@ module Record
 
 open Bytes
 open Error
+open TLSError
 open TLSInfo
 open TLSConstants
 open Range
@@ -22,16 +23,17 @@ type ConnectionState =
     | NullState
     | SomeState of TLSFragment.history * StatefulLHAE.state
 
-let someState (ki:epoch) (rw:StatefulLHAE.rw) h s = SomeState(h,s)
+let someState (e:epoch) (rw:rw) h s = SomeState(h,s)
 
 type sendState = ConnectionState
 type recvState = ConnectionState
 
-let initConnState (ki:epoch) (rw:StatefulLHAE.rw) s =
-  let eh = TLSFragment.emptyHistory ki in
-  someState ki rw eh s
+let initConnState (e:epoch) (rw:rw) s =
+  let i = id e in
+  let h = TLSFragment.emptyHistory e in
+  someState e rw h s
 
-let nullConnState (ki:epoch) (rw:StatefulLHAE.rw) = NullState
+let nullConnState (e:epoch) (rw:rw) = NullState
 
 // packet format
 let makePacket ct ver data =
@@ -41,26 +43,14 @@ let makePacket ct ver data =
     let bl   = bytes_of_int 2 l in
     bct @| bver @| bl @| data
 
-let headerLength b =
-    let (ct1,rem4) = split b 1  in
-    let (pv2,len2) = split rem4 2 in
-    let len = int_of_bytes len2 in
-    // With a precise int/byte model,
-    // no need to check len, since it's on 2 bytes and the max allowed value is 2^16.
-    // Here we do a runtime check to get the same property statically
-    if len <= 0 || len > max_TLSCipher_fragment_length then
-        Error(AD_illegal_parameter, perror __SOURCE_FILE__ __LINE__ "Wrong fragment length")
-    else
-        correct(len)
-
 let parseHeader b =
     let (ct1,rem4) = split b 1 in
     let (pv2,len2) = split rem4 2 in
     match parseCT ct1 with
-    | Error(x,y) -> Error(x,y)
+    | Error(z) -> Error(z)
     | Correct(ct) ->
     match TLSConstants.parseVersion pv2 with
-    | Error(x,y) -> Error(x,y)
+    | Error(z) -> Error(z)
     | Correct(pv) ->
     let len = int_of_bytes len2 in
     if len <= 0 || len > max_TLSCipher_fragment_length then
@@ -70,61 +60,57 @@ let parseHeader b =
 
 (* This replaces send. It's not called send,
    since it doesn't send anything on the network *)
-let recordPacketOut ki conn pv rg ct fragment =
+let recordPacketOut e conn pv rg ct fragment =
     (* No need to deal with compression. It is handled internally by TLSPlain,
        when returning us the next (already compressed!) fragment *)
 
-    let initEpoch = isInitEpoch ki in
+    let initEpoch = isInitEpoch e in
     match (initEpoch, conn) with
     | (true,NullState) ->
-        let eh = TLSFragment.emptyHistory ki in
-        let payload = TLSFragment.repr ki ct eh rg fragment in
+        let i = id e in // doesn't typechecke
+        let payload = TLSFragment.reprFragment i ct rg fragment in
         let packet = makePacket ct pv payload in
         (conn,packet)
     | (false,SomeState(history,state)) ->
-        let ad = StatefulPlain.makeAD ki ct in
-        let sh = StatefulLHAE.history ki StatefulLHAE.WriterState state in
-        let aeadF = StatefulPlain.RecordPlainToStAEPlain ki ct history sh rg fragment in
-        let (state,payload) = StatefulLHAE.encrypt ki state ad rg aeadF in
-        let history = TLSFragment.extendHistory ki ct history rg fragment in
+        let i = id e in
+        let ad = StatefulPlain.makeAD i ct in
+        let sh = StatefulLHAE.history i Writer state in
+        let aeadF = StatefulPlain.RecordPlainToStAEPlain e ct ad history sh rg fragment in
+        let (state,payload) = StatefulLHAE.encrypt i state ad rg aeadF in
+        let history = TLSFragment.extendHistory e ct history rg fragment in
         let packet = makePacket ct pv payload in
-        (SomeState(history,state),packet)
-    | _ -> unexpectedError "[recordPacketOut] Incompatible ciphersuite and key type"
+        (SomeState(history,state),
+         packet)
+    | _ -> unexpected "[recordPacketOut] Incompatible ciphersuite and key type"
 
-let recordPacketIn ki conn headPayload =
-    let (header,payload) = split headPayload 5 in
-    match parseHeader header with
-    | Error(x,y) -> Error(x,y)
-    | Correct (parsed) ->
-    let (ct,pv,plen) = parsed in
-    // tlen is checked in headerLength, which is invoked by Dispatch
-    // before invoking this function
-    if length payload <> plen then
-        let reason = perror __SOURCE_FILE__ __LINE__ "Wrong record packet size" in
-        Error(AD_illegal_parameter, reason)
-    else
-    let initEpoch = isInitEpoch ki in
+let recordPacketIn e conn ct payload =
+    let initEpoch = isInitEpoch e in
     match (initEpoch,conn) with
     | (true,NullState) ->
+        let plen = length payload in
         let rg = (plen,plen) in
-        let eh = TLSFragment.emptyHistory ki in
-        let msg = TLSFragment.plain ki ct eh rg payload in
-        correct(conn,ct,pv,rg,msg)
+        let i = id e in
+        match TLSFragment.fragment i ct rg payload with
+        | Error(x,y) -> unexpected "[recordPacketIn] creating a fragment should never fail on initial epoch"
+        | Correct(msg) -> correct(conn,rg,msg)
     | (false,SomeState(history,state)) ->
-        let ad = StatefulPlain.makeAD ki ct in
-        let decr = StatefulLHAE.decrypt ki state ad payload in
+        let i = id e in
+        let ad = StatefulPlain.makeAD i ct in
+        let decr = StatefulLHAE.decrypt i state ad payload in
         match decr with
-        | Error(x,y) -> Error(x,y)
+        | Error(z) -> Error(z)
         | Correct (decrRes) ->
             let (newState, rg, plain) = decrRes in
-            let oldH = StatefulLHAE.history ki StatefulLHAE.ReaderState state in
-            let msg = StatefulPlain.StAEPlainToRecordPlain ki ct history oldH rg plain in
-            let history = TLSFragment.extendHistory ki ct history rg msg in
-            let st' = someState ki StatefulLHAE.ReaderState history newState in
-            correct(st',ct,pv,rg,msg)
-    | _ -> unexpectedError "[recordPacketIn] Incompatible ciphersuite and key type"
+            let oldH = StatefulLHAE.history i Reader state in
+            let msg = StatefulPlain.StAEPlainToRecordPlain e ct ad history oldH rg plain in
+            let history = TLSFragment.extendHistory e ct history rg msg in
+            let st' = someState e Reader history newState in
+            correct(st',rg,msg)
+    | _ -> unexpected "[recordPacketIn] Incompatible ciphersuite and key type"
 
-let history (e:epoch) (rw:StatefulLHAE.rw) s =
+let history (e:epoch) (rw:rw) s =
     match s with
-    | NullState -> TLSFragment.emptyHistory e
+    | NullState ->
+        let i = id e in
+        TLSFragment.emptyHistory e
     | SomeState(h,_) -> h

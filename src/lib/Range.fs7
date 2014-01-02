@@ -15,107 +15,128 @@ module Range
 (* This modules defines the range computations for length-hiding *)
 
 open Bytes
-open TLSInfo
 open TLSConstants
+open TLSInfo
 
 type range = low:nat * high:nat { low <= high }
 type (;r:range) rbytes = b:bytes { ?l,h. r = (l,h) /\ l <= Length(b) /\ Length(b) <= h }
 function val Sum: range * range -> range
 definition !l0,h0,l1,h1. Sum((l0,h0),(l1,h1)) = (l0+l1,h0+h1)
-val rangeSum: r0:range -> r1:range -> r:range{r = Sum(r0,r1)}
+val sum: r0:range -> r1:range -> r:range{r = Sum(r0,r1)}
 
 predicate SubRange of range * range
 definition !l0,l1,h0,h1. SubRange((l0,h0),(l1,h1)) <=> l1 <= l0 && h0 <= h1
 
-function val RangeClass: epoch * range -> range
-function val TargetLength: epoch * range -> nat
-function val CipherRangeClass: epoch * nat -> range
+function val RangeClass: id * range -> range
+function val TargetLength: id * range -> nat
+function val CipherRangeClass: id * nat -> range
 
 definition !e,r. RangeClass(e,r) = CipherRangeClass(e,TargetLength(e,r))
 theorem !e,t,rg.  rg = CipherRangeClass(e,t) => t = TargetLength(e,rg)
 theorem !e,r. SubRange(r,RangeClass(e,r))
 
-function val IVSize: epoch -> nat
-definition !e,mac,alg.
-	((CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MACOnly(mac) \/
-	  CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(Stream_RC4_128,mac) \/
-	  CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(CBC_Stale(alg),mac))
-	 => IVSize(e) = 0 ) /\
-	( CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(CBC_Fresh(alg),mac)
-	 => IVSize(e)= BlockSize(alg) )
+function val IVSize: id -> nat
+definition
+	(!i,mac. i.aeAlg = MACOnly(mac) => IVSize(i) = 0) /\
+	(!i,mac. i.aeAlg = MtE(Stream_RC4_128,mac) => IVSize(i) = 0 ) /\
+	(!i,mac,alg. i.aeAlg = MtE(CBC_Stale(alg),mac) => IVSize(i) = 0 ) /\
+	(!i,mac,alg. i.aeAlg = MtE(CBC_Fresh(alg),mac) => IVSize(i)= BlockSize(alg))
 
-val ivSize: e:succEpoch -> l:nat{l=IVSize(e)}
+ask !i. (?mac. i.aeAlg = MACOnly(mac) \/ i.aeAlg = MtE(Stream_RC4_128,mac)) => IVSize(i) = 0
 
-val fixedPadSize: si:SessionInfo -> l:nat{l=1}
+val ivSize: e:id -> l:nat{l=IVSize(e)}
 
-function val MaxPadSize: si:SessionInfo * unit -> nat
-private definition !si,alg'.
-	((?mac,alg. CipherSuiteAuthEncAlg(si.cipher_suite,si.protocol_version) = MACOnly(mac) \/
-	  CipherSuiteAuthEncAlg(si.cipher_suite,si.protocol_version) = MtE(Stream_RC4_128,mac))
-	 <=> MaxPadSize(si,()) = 0 ) /\
-	((?mac,alg. CipherSuiteAuthEncAlg(si.cipher_suite,si.protocol_version) = MtE(CBC_Fresh(alg),mac) \/
-	  CipherSuiteAuthEncAlg(si.cipher_suite,si.protocol_version) = MtE(CBC_Stale(alg),mac)) /\
-	 (si.protocol_version = TLS_1p0 \/ si.protocol_version = TLS_1p1 \/ si.protocol_version = TLS_1p2)
-	 <=>   MaxPadSize(si,()) = 255 )  /\
-	((?mac. CipherSuiteAuthEncAlg(si.cipher_suite,si.protocol_version) = MtE(CBC_Fresh(alg'),mac) \/
-	  CipherSuiteAuthEncAlg(si.cipher_suite,si.protocol_version) = MtE(CBC_Stale(alg'),mac)) /\
-	 (si.protocol_version = SSL_3p0)
-	 <=>   MaxPadSize(si,()) = BlockSize(alg') )
-val maxPadSize: si:SessionInfo -> l:nat{l = MaxPadSize(si,())}
+val fixedPadSize: si:SessionInfo -> l:nat{
+    (si.extended_record_padding = true /\ l=2) \/
+    (si.extended_record_padding = false /\ l=1)}
 
-val minMaxPad: si:SessionInfo -> l:nat * h:nat{
-	(MaxPadSize(si,()) = 0 /\ l = 0 /\ h = 0 ) \/
-	 MaxPadSize(si,()) > 0 /\ l = 1 /\ h = MaxPadSize(si,())}
+function val MaxPadSize: i:id * unit -> nat
+private definition !i,mac,alg,aeAlg.
+    (i.aeAlg = MACOnly(mac) 	        => MaxPadSize(i,()) = 0)  /\
+	(i.aeAlg = AEAD(aeAlg,mac)			=> MaxPadSize(i,()) = 0)  /\
+    (i.aeAlg = MtE(Stream_RC4_128,mac) 	=> MaxPadSize(i,()) = 0 ) /\
+    (i.aeAlg = MtE(CBC_Fresh(alg),mac) /\ (PvOfId(i) = TLS_1p0 \/ PvOfId(i) = TLS_1p1 \/ PvOfId(i) = TLS_1p2)
+	                                    => MaxPadSize(i,()) = 255) /\
+    (i.aeAlg = MtE(CBC_Stale(alg),mac) /\ (PvOfId(i) = TLS_1p0 \/ PvOfId(i) = TLS_1p1 \/ PvOfId(i) = TLS_1p2)
+                                        => MaxPadSize(i,()) = 255) /\
+    (i.aeAlg = MtE(CBC_Fresh(alg),mac) /\ PvOfId(i) = SSL_3p0
+										=> MaxPadSize(i,()) = BlockSize(alg)) /\
+    (i.aeAlg = MtE(CBC_Stale(alg),mac) /\ PvOfId(i) = SSL_3p0
+										=> MaxPadSize(i,()) = BlockSize(alg))
+
+val maxPadSize: i:id -> l:nat{l = MaxPadSize(i,())}
+
+val minMaxPad: i:id -> l:nat * h:nat{
+	(MaxPadSize(i,()) = 0 /\ l = 0 /\ h = 0 ) \/
+	 MaxPadSize(i,()) > 0 /\ l = 1 /\ h = MaxPadSize(i,())}
 
 // Padding computations
-function val BlockAligned: epoch * nat -> nat
-definition !e,mac,alg,l.
-	((CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MACOnly(mac) \/
-	  CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(Stream_RC4_128,mac))
-	 => BlockAligned(e,l) = 0 ) /\
-	((CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(CBC_Fresh(alg),mac) \/
-	  CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(CBC_Stale(alg),mac))
-	 =>  ( BlockAligned(e,l) >= 1 /\ BlockAligned(e,l) < (BlockSize(alg) + 1) ) )
+function val Modulus: int * int -> int
+//private definition !x,y. Modulus(x,y) = 0
 
-// We are not precise enough to prove this
-private assume !e,mac,alg,l,l'.
-	((CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(CBC_Fresh(alg),mac) \/
-	  CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(CBC_Stale(alg),mac)) /\
-	  (l' >= 1) /\ (l' <= (BlockSize(alg) + 1)) )
-	 => (l' = BlockAligned(e,l))
-private val blockAlignPadding: e:succEpoch -> l:nat -> l':nat{l' = BlockAligned(e,l)}
+function val BlockAlignedPadding: id * nat -> nat
+definition !e,mac,alg,aeAlg,l.
+	(e.aeAlg = MACOnly(mac)    => BlockAlignedPadding(e,l) = 0 ) /\
+	(e.aeAlg = AEAD(aeAlg,mac) => BlockAlignedPadding(e,l) = 0 ) /\
+	(e.aeAlg = MtE(Stream_RC4_128,mac) => BlockAlignedPadding(e,l) = 0 ) /\
+	(e.aeAlg = MtE(CBC_Fresh(alg),mac) /\ Modulus(l + 1,BlockSize(alg)) = 0 =>
+                                 BlockAlignedPadding(e,l) = 1) /\
+	(e.aeAlg = MtE(CBC_Stale(alg),mac) /\ Modulus(l + 1,BlockSize(alg)) = 0 =>
+                                 BlockAlignedPadding(e,l) = 1) /\
+	(e.aeAlg = MtE(CBC_Fresh(alg),mac) /\ Modulus(l + 1,BlockSize(alg)) <> 0 =>
+                                 BlockAlignedPadding(e,l) = 1 + BlockSize(alg) - Modulus(l + 1,BlockSize(alg))) /\
+	(e.aeAlg = MtE(CBC_Stale(alg),mac) /\ Modulus(l + 1,BlockSize(alg)) <> 0 =>
+                                 BlockAlignedPadding(e,l) = 1 + BlockSize(alg) - Modulus(l + 1,BlockSize(alg)))
 
-definition !e,l,h.
-	TargetLength(e,(l,h)) =
-		IVSize(e) + h + MacSize(CipherSuiteMACAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version)) +
-		BlockAligned(e,h + MacSize(CipherSuiteMACAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version)))
+private val blockAlignPadding: e:id -> l:nat -> l':nat{l' = BlockAlignedPadding(e,l)}
 
-val targetLength: e:succEpoch -> r:range ->
-  tlen:nat {tlen = TargetLength(e,r) /\ tlen <= max_TLSCipher_fragment_length}
-
-definition !h,tlen,e,l. (?alg,mac. (l,h) = CipherRangeClass(e,tlen) /\
-	((CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(CBC_Fresh(alg),mac) \/
-	  CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(CBC_Stale(alg),mac))) ) <=>
-	( h >= 0 /\
-	  (h = tlen - IVSize(e) -
-		   MacSize(CipherSuiteMACAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version)) - 1) /\
-	  ( (h >= 255 /\ l = h - 255) \/
-	    (h < 255 /\ l = 0 )
-	  )
+definition !e,mac,alg,aeAlg,l,h.
+	h >= 0 =>
+	(
+		( (e.aeAlg = MACOnly(mac) \/
+		   e.aeAlg = MtE(alg,mac)  ) =>
+		TargetLength(e,(l,h)) =
+			IVSize(e) + h + MacKeySize(MacAlg(e)) +
+			BlockAlignedPadding(e,h + MacKeySize(MacAlg(e))) ) /\
+		( e.aeAlg = AEAD(aeAlg,mac) =>
+		TargetLength(e,(l,h)) =
+			AEADRecordIVSize(aeAlg) + h + AEADTagSize(aeAlg)
+		)
 	)
 
-definition !e,l,h,tlen. (?alg,mac. (l,h) = CipherRangeClass(e,tlen) /\
-	((CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MACOnly(mac) \/
-	  CipherSuiteAuthEncAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version) = MtE(Stream_RC4_128,mac))) ) <=>
-	( h >= 0 /\
-	  (h = tlen - IVSize(e) -
-		   MacSize(CipherSuiteMACAlg(EpochSI(e).cipher_suite,EpochSI(e).protocol_version)) ) /\
-	  ( l = h
-	  )
-	)
+ask !e,l,h. h >= 0 => TargetLength(e,(l,h)) >= 0
 
-val cipherRangeClass: e:succEpoch ->
+val targetLength: i:id -> r:range ->
+  tlen:nat {tlen = TargetLength(i,r) /\ tlen <= max_TLSCipher_fragment_length}
+
+definition
+	(!e,tlen,alg,mac,x.
+           e.aeAlg = MtE(CBC_Fresh(alg),mac) /\
+            x = tlen - IVSize(e) - MacKeySize(mac) - 1 /\
+            x >= 0 =>
+             ((x < 255 /\ CipherRangeClass(e,tlen) = (0,x)) \/
+              (x >= 255 /\ CipherRangeClass(e,tlen) = (x-255,x)))) /\
+	(!e,tlen,alg,mac,x.
+	  e.aeAlg = MtE(CBC_Stale(alg),mac) /\
+            x = tlen - IVSize(e) - MacKeySize(mac) - 1 /\
+            x >= 0 =>
+             ((x < 255 /\ CipherRangeClass(e,tlen) = (0,x)) \/
+              (x >= 255 /\ CipherRangeClass(e,tlen) = (x-255,x)))) /\
+	(!e,tlen,mac,x.
+	  e.aeAlg = MACOnly(mac) /\
+          x = tlen - MacKeySize(mac) /\
+          x >= 0 => CipherRangeClass(e,tlen) = (x,x)) /\
+	(!e,tlen,mac,x.
+	  e.aeAlg = MtE(Stream_RC4_128,mac) /\
+          x = tlen - IVSize(e) - MacKeySize(mac) /\ x >= 0 =>
+             CipherRangeClass(e,tlen) = (x,x)) /\
+	(!e,tlen,aeAlg,mac,x.
+	  e.aeAlg = AEAD(aeAlg,mac) /\
+		  x = tlen - AEADRecordIVSize(aeAlg) - AEADTagSize(aeAlg) /\ x >= 0 =>
+			 CipherRangeClass(e,tlen) = (x,x))
+
+val cipherRangeClass: e:id ->
   tlen:nat{tlen <= max_TLSCipher_fragment_length} ->
   r:range {r = CipherRangeClass(e,tlen)}
 
-val rangeClass: e:succEpoch -> r0:range -> r1:range{r1 = RangeClass(e,r0)}
+val rangeClass: e:id -> r0:range -> r1:range{r1 = RangeClass(e,r0)}

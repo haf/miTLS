@@ -16,6 +16,7 @@ module TLSPRF
 
 open Bytes
 open TLSConstants
+open TLSInfo
 open HASH
 open HMAC
 
@@ -31,14 +32,20 @@ let ssl_prf secret seed nb =
   let gen_label (i:int) = new System.String(char((int 'A')+i),i+1) in
   let rec apply_prf res n =
     if n > nb then
-      Array.sub res 0 nb
+      let r,_ = split res nb in r
     else
         let step1 = ssl_prf_int secret (gen_label (n/16)) seed in
         apply_prf (res @| step1) (n+16)
   in
-  apply_prf [||]  0
+  apply_prf empty_bytes  0
 
-let ssl_verifyData ms ssl_sender data =
+let ssl_sender_client = abytes [|0x43uy; 0x4Cuy; 0x4Euy; 0x54uy|]
+let ssl_sender_server = abytes [|0x53uy; 0x52uy; 0x56uy; 0x52uy|]
+let ssl_verifyData ms role data =
+  let ssl_sender =
+    match role with
+    | Client -> ssl_sender_client
+    | Server -> ssl_sender_server
   let mm = data @| ssl_sender @| ms in
   let inner_md5  = hash MD5 (mm @| ssl_pad1_md5) in
   let outer_md5  = hash MD5 (ms @| ssl_pad2_md5 @| inner_md5) in
@@ -46,12 +53,12 @@ let ssl_verifyData ms ssl_sender data =
   let outer_sha1 = hash SHA (ms @| ssl_pad2_sha1 @| inner_sha1) in
   outer_md5 @| outer_sha1
 
-let ssl_certificate_verify ms log hashAlg =
+let ssl_verifyCertificate hashAlg ms log  =
   let (pad1,pad2) =
       match hashAlg with
       | SHA -> (ssl_pad1_sha1, ssl_pad2_sha1)
       | MD5 -> (ssl_pad1_md5,  ssl_pad2_md5)
-      | _ -> Error.unexpectedError "[ssl_certificate_verify] invoked on a wrong hash algorithm"
+      | _ -> Error.unexpected "[ssl_certificate_verify] invoked on a wrong hash algorithm"
   let forStep1 = log @| ms @| pad1 in
   let step1 = hash hashAlg forStep1 in
   let forStep2 = ms @| pad2 @| step1 in
@@ -59,22 +66,12 @@ let ssl_certificate_verify ms log hashAlg =
 
 (* TLS 1.0 and 1.1 *)
 
-let xor s1 s2 nb =
-  if Array.length s1 < nb || Array.length s2 < nb then
-    Error.unexpectedError "[xor] arrays too short"
-  else
-    let res = Array.zeroCreate nb in
-    for i=0 to nb-1 do
-      res.[i] <- byte (int s1.[i] ^^^ int s2.[i])
-    done;
-    res
-
 let rec p_hash_int alg secret seed len it aPrev acc =
   let aCur = MAC alg secret aPrev in
   let pCur = MAC alg secret (aCur @| seed) in
   if it = 1 then
     let hs = macSize alg in
-    let r = len%hs in
+    let r = len % hs in
     let (pCur,_) = split pCur r in
     acc @| pCur
   else
@@ -83,40 +80,66 @@ let rec p_hash_int alg secret seed len it aPrev acc =
 let p_hash alg secret seed len =
   let hs = macSize alg in
   let it = (len/hs)+1 in
-  p_hash_int alg secret seed len it seed [||]
+  p_hash_int alg secret seed len it seed empty_bytes
 
 let tls_prf secret label seed len =
-  let l_s = Array.length secret in
+  let l_s = length secret in
   let l_s1 = (l_s+1)/2 in
-  let secret1 = Array.sub secret 0 l_s1 in
-  let secret2 = Array.sub secret (l_s-l_s1) l_s1 in
-  let newseed = (utf8 label) @| seed in
-  let hmd5 = p_hash (MA_HMAC(MD5)) secret1 newseed len in
+  let secret1,secret2 = split secret l_s1 in
+  let newseed = label @| seed in
+  let hmd5  = p_hash (MA_HMAC(MD5)) secret1 newseed len in
   let hsha1 = p_hash (MA_HMAC(SHA)) secret2 newseed len in
   xor hmd5 hsha1 len
 
-let tls_verifyData ms tls_label data =
+let tls_finished_label : Role -> bytes =
+  let tls_client_label = utf8 "client finished"
+  let tls_server_label = utf8 "server finished"
+  function
+  | Client -> tls_client_label
+  | Server -> tls_server_label
+
+let tls_verifyData ms role data =
   let md5hash  = hash MD5 data in
   let sha1hash = hash SHA data in
-  tls_prf ms tls_label (md5hash @| sha1hash) 12
+  tls_prf ms (tls_finished_label role) (md5hash @| sha1hash) 12
 
 (* TLS 1.2 *)
 
-let tls12prf cs secret label seed len =
+let tls12prf cs ms label data len =
   let prfMacAlg = prfMacAlg_of_ciphersuite cs in
-  let newseed = (utf8 label) @| seed in
-  p_hash prfMacAlg secret newseed len
+  p_hash prfMacAlg ms (label @| data) len
 
-let tls12VerifyData cs ms tls_label data =
+let tls12prf' macAlg ms label data len =
+  p_hash macAlg ms (label @| data) len
+
+let tls12VerifyData cs ms role data =
   let verifyDataHashAlg = verifyDataHashAlg_of_ciphersuite cs in
-  let hashResult = hash verifyDataHashAlg data in
   let verifyDataLen = verifyDataLen_of_ciphersuite cs in
-  tls12prf cs ms tls_label hashResult verifyDataLen
+  let hashed = hash verifyDataHashAlg data in
+  tls12prf cs ms (tls_finished_label role) hashed verifyDataLen
 
-(* Internal generic (SSL/TLS) implementation of PRF *)
+(* Internal agile implementation of PRF *)
 
-let prf pv cs secret label data len =
+let verifyData (pv,cs) (secret:bytes) (role:Role) (data:bytes) =
+  match pv with
+    | SSL_3p0           -> ssl_verifyData     secret role data
+    | TLS_1p0 | TLS_1p1 -> tls_verifyData     secret role data
+    | TLS_1p2           -> tls12VerifyData cs secret role data
+
+let prf (pv,cs) secret (label:bytes) data len =
   match pv with
   | SSL_3p0           -> ssl_prf     secret       data len
   | TLS_1p0 | TLS_1p1 -> tls_prf     secret label data len
   | TLS_1p2           -> tls12prf cs secret label data len
+
+let prf' a secret data len =
+    match a with
+    | CRE_TLS_1p2(label,macAlg) -> tls12prf' macAlg secret label data len  // typically SHA256 but may depend on CS
+    | CRE_TLS_1p01(label)       -> tls_prf          secret label data len  // MD5 xor SHA1
+    | CRE_SSL3_nested           -> ssl_prf          secret       data len  // MD5(SHA1(...)) for extraction and keygen
+
+//let extract a secret data len = prf a secret extract_label data len
+
+let extract a secret data len = prf' a secret data len
+
+let kdf     a secret data len = prf a secret kdf_label     data len

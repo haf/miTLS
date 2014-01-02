@@ -23,10 +23,11 @@ type p = bytes // DH group order, actually a bignum
 // are bytes that have been correctly generated or checked,
 // e.g. Num(elt) in 2..p-1
 
-predicate val Elt: bytes * bytes -> bool
+predicate type preds = Elt of bytes * bytes
 type (;p:p) elt = b:bytes{ Elt(p,b) }
 
 type (;p:p) g = (;p) elt  // for the group generator
 
+val dhparams: p:p -> (;p)g -> CoreKeys.dhparams
 val genElement: p:p -> g:(;p)g -> (;p)elt
 val checkElement: p:p -> b:bytes -> (b':(;p)elt{b=b'}) option

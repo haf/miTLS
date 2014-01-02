@@ -12,14 +12,17 @@
 
 module Nonce
 
-(* This module is not typechecked. *)
+(* This module is typechecked. *)
 
 open Bytes
 
+val random: n:nat -> (;n)lbytes
+
 val mkHelloRandom: unit -> b:(;32)lbytes
+// mkHelloRandom returns globally pairwise-distinct values
+// up to a negligible probability of collision
+
+val noCsr: (;64) lbytes (* null value for indexing *)
 
 private val log: (;32) lbytes list ref
 private val timestamp: unit -> (;4) lbytes
-
-// mkHelloRandom returns pairwise-distinct values
-// up to a negligible probability of collision

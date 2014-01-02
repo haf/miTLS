@@ -14,14 +14,12 @@ module TLSPRF
 
 open Bytes
 open TLSConstants
+open TLSInfo
 
-(* Verify data *)
-val ssl_verifyData : bytes -> bytes  -> bytes -> bytes
-val tls_verifyData : bytes -> string -> bytes -> bytes
-val tls12VerifyData: cipherSuite -> bytes -> string -> bytes -> bytes
-
-(* PRF *)
-val prf: ProtocolVersion -> cipherSuite -> bytes -> string -> bytes -> int -> bytes
+val verifyData: prfAlg -> bytes -> Role -> bytes -> bytes
+val extract: creAlg -> bytes -> bytes -> int -> bytes
+val kdf: prfAlg -> bytes -> bytes -> int -> bytes
 
 (* SSL-specific certificate verify *)
-val ssl_certificate_verify: bytes -> bytes -> hashAlg -> bytes
+
+val ssl_verifyCertificate: hashAlg -> bytes -> bytes -> bytes

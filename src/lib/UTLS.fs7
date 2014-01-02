@@ -13,10 +13,12 @@
 module UTLS
 
 open Error
+open TLSError
 open Bytes
 open TLSInfo
 open DataStream
 open Dispatch
+open TLS
 
 (* ------------------------------------------------------------------------ *)
 type rawfd   = Tcp.NetworkStream
@@ -39,18 +41,23 @@ val EI_HSONGOING  : i:int{i = 0-12}
 
 (* ------------------------------------------------------------------------ *)
 private type handleinfo = {
-    conn     : Connection;
+    conn     : TLS.Connection;
 	canwrite : bool;
 }
 
-predicate CanWriteP of bool * Connection
+function val HandleConn: handleinfo -> TLS.Connection
+function val HandleCanWrite: handleinfo -> bool
+private definition !b,c. HandleConn({conn = c; canwrite = b}) = c
+private definition !b,c. HandleCanWrite({conn = c; canwrite = b}) = b
+
+predicate CanWriteP of bool * TLS.Connection
 
 definition !b, c. (b = true => CanWrite(CnInfo(c))) => CanWriteP(b, c)
 definition !b, c. CanWriteP(b, c) => (b = true => CanWrite(CnInfo(c)))
 
-private type Phandleinfo = h:handleinfo{ CanWriteP(h.canwrite, h.conn) }
+type Phandleinfo = h:handleinfo{ CanWriteP(HandleCanWrite(h), HandleConn(h)) }
 
-private type fdmap = (fd * Phandleinfo) list
+type fdmap = (fd * Phandleinfo) list
 
 (* ------------------------------------------------------------------------ *)
 private val handleinfo_of_conn : Connection -> Phandleinfo

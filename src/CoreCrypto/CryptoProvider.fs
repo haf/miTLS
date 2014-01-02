@@ -17,8 +17,9 @@ open System
 open System.Reflection
 
 (* ------------------------------------------------------------------------ *)
-type key = byte[]
-type iv  = byte[]
+type key   = byte[]
+type iv    = byte[]
+type adata = byte[]
 
 (* ------------------------------------------------------------------------ *)
 type MessageDigest =
@@ -37,6 +38,17 @@ type BlockCipher =
         abstract Name      : string
         abstract Direction : direction
         abstract BlockSize : int
+        abstract Process   : byte[] -> byte[]
+    end
+
+(* ------------------------------------------------------------------------ *)
+type acipher = AES
+type amode   = GCM of iv * adata
+
+type AeadCipher =
+    interface
+        abstract Name      : string
+        abstract Direction : direction
         abstract Process   : byte[] -> byte[]
     end
 
@@ -63,6 +75,9 @@ type Provider =
         abstract MessageDigest :
             string -> MessageDigest option
 
+        abstract AeadCipher :
+            direction -> acipher -> amode -> key -> AeadCipher option
+
         abstract BlockCipher :
             direction -> cipher -> mode option -> key -> BlockCipher option
 
@@ -77,8 +92,10 @@ type Provider =
 exception CannotLoadProvider of string
 exception NoMessageDigest    of string
 exception NoBlockCipher      of cipher * mode option
+exception NoAeadCipher       of acipher * amode
 exception NoStreamCipher     of scipher
 exception NoHMac             of string
+exception AEADFailure
 
 type CoreCrypto () =
     static let default_provider = "BCCryptoProvider.BCProvider"
@@ -88,7 +105,7 @@ type CoreCrypto () =
     static let mutable config      = ref CoreCrypto.Config
 
     static member Register (provider : Provider) =
-        providers := provider :: !providers
+        providers := !providers @ [provider]
 
     static member Providers =
         Array.ofList !providers
@@ -98,6 +115,13 @@ type CoreCrypto () =
         let select (p : Provider) = p.MessageDigest name in
             match !providers |> List.tryPick select with
             | None   -> raise (NoMessageDigest name)
+            | Some x -> x
+
+    static member AeadCipher (d : direction) (c : acipher) (m : amode) (k : key) =
+        !config ();
+        let select (p : Provider) = p.AeadCipher d c m k in
+            match !providers |> List.tryPick select with
+            | None   -> raise (NoAeadCipher (c, m))
             | Some x -> x
 
     static member BlockCipher (d : direction) (c : cipher) (m : mode option) (k : key) =
@@ -147,7 +171,7 @@ type CoreCrypto () =
                 try
                     ignore (CoreCrypto.LoadProvider (name))
                 with CannotLoadProvider _ ->
-                    fprintfn stderr "cannot load crypto provider `%s'" name
+                    ()
             in
                 Array.iter register1 providers
         in

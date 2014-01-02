@@ -16,6 +16,7 @@ module Cert
 
 open Bytes
 open Error
+open TLSError
 open TLSConstants
 
 type hint = string
@@ -53,13 +54,13 @@ val validate_cert_chain : Sig.alg list -> chain -> bool
 (* ---- TLS-specific encoding ---- *)
 
 private val consCertificateBytes: c:bytes -> a:bytes ->
-	b:bytes{b=VLBytes(3,c) @| a}
+	b:bytes{B(b)=VLBytes(3,c) @| a}
 
-function val CertificateListBytes: chain -> bytes
-//private definition !bl. CertificateMsg(bl) = MessageBytes(HT_certificate,VLBytes(3,UnfoldBack(bl,[||])))
+function val CertificateListBytes: chain -> cbytes
+//private definition !bl. CertificateMsg(bl) = MessageBytes(HT_certificate,VLBytes(3,UnfoldBack(bl,empty_bytes)))
 
 val certificateListBytes: cl:chain ->
-	b:bytes{b=VLBytes(3,CertificateListBytes(cl))}
+	b:bytes{B(b)=VLBytes(3,CertificateListBytes(cl))}
 val parseCertificateList: b:bytes -> acc:chain ->
 	(cl:chain{(* ?l. cl = l @ acc /\ b=CertificateListBytes(l) *)
-		acc = [] => b=CertificateListBytes(cl)}) Result
+		acc = [] => B(b)=CertificateListBytes(cl)}) Result

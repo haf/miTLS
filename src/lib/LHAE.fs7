@@ -14,6 +14,7 @@ module LHAE
 
 open Bytes
 open Error
+open TLSError
 open TLSInfo
 open Range
 
@@ -22,85 +23,98 @@ open TLSConstants
 type cipher = b:bytes{Length(b) <= max_TLSCipher_fragment_length}
 (* no need to be more precise on the length *)
 
-private type (;ki:epoch) LHAEKey =
-    | MtEK of ka:(;ki)MAC.key * ke:(;ki)ENC.state // {MtEKey(ki,(ka,ke))}
-    | MACOnlyK of (;ki) MAC.key
-(*  | GCM of ke:(;ki:AENC.state)  *)
+private type (;i:id,rw:rw) LHAEKey =
+    | MtEK of ka:(;i)MAC.key * ke:(;i,rw)ENC.state // {MtEKey(i,(ka,ke))}
+    | MACOnlyK of (;i) MAC.key
+    | GCM of (;i,rw)AEAD_GCM.state
 
-function val LHAESize: ki:epoch -> nat
-private definition !ki,si,enc,mac. si = EpochSI(ki) =>
-	(( CipherSuiteAuthEncAlg(si.cipher_suite,si.protocol_version) = MACOnly(mac) =>
-	  LHAESize(ki) = MacSize(mac) ) /\
-	 ( CipherSuiteAuthEncAlg(si.cipher_suite,si.protocol_version) = MtE(enc,mac) =>
-	  LHAESize(ki) = MacSize(mac) +
-					    EncKeySize(enc) +
-					    Range.IVSize(ki) ))
+type (;i:id)encryptor = (;i,Writer)LHAEKey
+type (;i:id)decryptor = (;i,Reader)LHAEKey
 
-val GEN:    ki:succEpoch     -> encryptor:(;ki)LHAEKey * decryptor:(;ki)LHAEKey
-val COERCE: ki:succEpoch{not Auth(ki)} -> b:bytes{Length(b) = LHAESize(ki)} -> (;ki)LHAEKey
-val LEAK:   ki:succEpoch{not Auth(ki)} -> (;ki)LHAEKey -> b:bytes
+function val KeyDerivationIVSize: aeAlg -> nat
+definition !mac.     KeyDerivationIVSize(MACOnly(mac))            = 0
+definition !mac.     KeyDerivationIVSize(MtE(Stream_RC4_128,mac)) = 0
+definition !enc,mac. KeyDerivationIVSize(MtE(CBC_Fresh(enc),mac)) = 0
+definition !enc,mac. KeyDerivationIVSize(MtE(CBC_Stale(enc),mac)) = BlockSize(enc)
+assume !a. KeyDerivationIVSize(a) >= 0
 
-private val mteKey: ki:epoch -> (;ki) MAC.key -> (;ki) ENC.state -> (;ki) LHAEKey
+function val KeySize: a:aeAlg -> nat
+definition !mac.     KeySize(MACOnly(mac)) = MacKeySize(mac)
+definition !enc,mac. KeySize(MtE(enc,mac)) = MacKeySize(mac) + EncKeySize(enc) + KeyDerivationIVSize(MtE(enc,mac))
+definition !enc,prf. KeySize(AEAD(enc,prf)) = AEADKeySize(enc) + AEADIVSize(enc)
 
-private assume !e,si. si = EpochSI(e) =>
-	( (si.protocol_version = SSL_3p0 \/ si.protocol_version = TLS_1p0) => IVSize(e) = 0 ) /\
-	( (si.protocol_version = TLS_1p1 \/ si.protocol_version = TLS_1p2) =>
-	   IVSize(e) = EncAlgBlockSize(CipherSuiteENCAlg(si.cipher_suite,si.protocol_version)) )
+ask !i,mac.     i.aeAlg = MACOnly(mac) => KeySize(i.aeAlg) = MacKeySize(mac)
+
+val GEN:    i:id     -> (;i)encryptor * (;i)decryptor
+val COERCE: i:id{not AuthId(i)} -> rw:rw -> b:bytes{Length(b) = KeySize(i.aeAlg)} -> (;i,rw)LHAEKey
+val LEAK:   i:id{not AuthId(i)} -> rw:rw -> (;i,rw)LHAEKey -> b:bytes
+
+private val mteKey: i:id -> rw:rw -> (;i) MAC.key -> (;i,rw) ENC.state -> (;i,rw) LHAEKey
+private val gcmKey: i:id -> rw:rw -> (;i,rw) AEAD_GCM.state -> (;i,rw)LHAEKey
 
 // We have two variants for encryption and decryption:
 // the first (primed) is concrete; the second is idealized at safe indexes,
 // using either #ideal_F (filtering out non-cipher) or #ideal (decrypting just by lookup)
 
-predicate ENCrypted of e:epoch * ad:(;e)LHAEPlain.adata * cipher
+predicate ENCrypted of e:id * ad:(;e)LHAEPlain.adata * cipher
 
-private definition !e,ad,c.
-  ENCrypted(e,ad,c) <=> ?p'. ENC.ENCrypted(e,ad,c,p')
+private definition !e,ad,c,enc,aenc,mac.
+  (e.aeAlg = MtE(enc,mac) =>
+    (ENCrypted(e,ad,c) <=> ?p. ENC.ENCrypted(e,ad,c,p)) ) /\
+  (e.aeAlg = AEAD(aenc,mac) =>
+    (ENCrypted(e,ad,c) <=> ?p. AEAD_GCM.ENCrypted(e,ad,c,p)) )
 
-ask !e,ad,c. ( Safe(e) => ENCrypted(e,ad,c) ) => (Safe(e) => ?p. ENC.ENCrypted(e,ad,c,p))
+ask !e,enc,mac,ad,c.
+	e.aeAlg = MtE(enc,mac) /\ ( SafeId(e) => ENCrypted(e,ad,c) ) =>
+	(SafeId(e) => (?p. ENC.ENCrypted(e,ad,c,p)))
 
-val encrypt': ki:succEpoch -> (;ki) LHAEKey -> ad:(;ki)LHAEPlain.adata ->
-  rg:range -> p:(;ki,ad,rg) LHAEPlain.plain ->
-  ((;ki) LHAEKey * c:cipher){Length(c) = TargetLength(ki,rg) /\
-                             (Safe(ki) => ENCrypted(ki,ad,c))}
+ask !e,enc,mac,ad,c,p.
+	e.aeAlg = MtE(enc,mac) /\ ( SafeId(e) => ENC.ENCrypted(e,ad,c,p) ) =>
+	(SafeId(e) => ENCrypted(e,ad,c))
 
-val encrypt : ki:succEpoch -> (;ki) LHAEKey -> ad:(;ki)LHAEPlain.adata ->
-  rg:range -> p:(;ki,ad,rg) LHAEPlain.plain ->
-  ((;ki) LHAEKey * c:cipher){Length(c) = TargetLength(ki,rg) /\
-                             (Safe(ki) => ENCrypted(ki,ad,c))}
+val encrypt': i:id -> (;i) encryptor -> ad:(;i)LHAEPlain.adata ->
+  rg:range -> p:(;i,ad,rg) LHAEPlain.plain ->
+  ((;i) encryptor * c:cipher){Length(c) = TargetLength(i,rg) /\
+                             (SafeId(i) => ENCrypted(i,ad,c))}
+
+val encrypt : i:id -> (;i) encryptor -> ad:(;i)LHAEPlain.adata ->
+  rg:range -> p:(;i,ad,rg) LHAEPlain.plain ->
+  ((;i) encryptor * c:cipher){Length(c) = TargetLength(i,rg) /\
+                             (SafeId(i) => ENCrypted(i,ad,c))}
 
 type entry =
-  ki:succEpoch * ad:(;ki) LHAEPlain.adata * rg:range *
-  p:(;ki,ad,rg) LHAEPlain.plain * c:ENC.cipher {ENCrypted(ki,ad,c)}
+  i:id * ad:(;i) LHAEPlain.adata * rg:range *
+  p:(;i,ad,rg) LHAEPlain.plain * c:ENC.cipher {ENCrypted(i,ad,c)}
 private val log: entry list ref
-private val cmem: ki:succEpoch -> ad:(;ki)LHAEPlain.adata -> c:cipher ->
-  entry list -> res:(r:range * (;ki,ad,r)LHAEPlain.plain) option {
-    ( !rg,p. res = Some ((rg,p)) => (ENCrypted(ki,ad,c) /\ rg = CipherRangeClass(ki,Length(c))) ) /\
-	( res = None => not ENCrypted(ki,ad,c) )}
+private val cmem: i:id -> ad:(;i)LHAEPlain.adata -> c:cipher ->
+  entry list -> res:(r:range * (;i,ad,r)LHAEPlain.plain) option {
+    ( !rg,p. res = Some ((rg,p)) => (ENCrypted(i,ad,c) /\ rg = CipherRangeClass(i,Length(c))) ) /\
+	( res = None => not ENCrypted(i,ad,c) )}
 
-val decrypt': ki:succEpoch -> k:(;ki) LHAEKey -> ad:(;ki)LHAEPlain.adata ->
-  c:cipher{Safe(ki) => ENCrypted(ki,ad,c)} -> res:
+val decrypt': i:id -> k:(;i) decryptor -> ad:(;i)LHAEPlain.adata ->
+  c:cipher{SafeId(i) => ENCrypted(i,ad,c)} -> res:
   ( (
-    (;ki) LHAEKey *
+    (;i) decryptor *
     rg:range *
-    p:(;ki,ad,rg) LHAEPlain.plain) {rg = CipherRangeClass(ki,Length(c))} ) Result
+    p:(;i,ad,rg) LHAEPlain.plain) {rg = CipherRangeClass(i,Length(c))} ) Result
 
 // { (* partial functional correctness when decrypting what we encrypted *)
 //   !pl,p,tag,rg.
-//	(    Length(c) = EncryptedLength(ki,rg)
+//	(    Length(c) = EncryptedLength(i,rg)
 //	  /\ MACed(e,ad,pl,tag) // nb Encode.MACed has extra args.
 //     /\ Encoded(e,ad,pl,tag,p)
 //     /\ ENCrypted(e,Length(c),StateID(e,Encryptor(k)),p,c)
 //   => ?k',r'. res = Correct((k',r',pl)) }
 
-val decrypt: ki:succEpoch -> (;ki) LHAEKey -> ad:(;ki)LHAEPlain.adata ->
+val decrypt: i:id -> (;i) decryptor -> ad:(;i)LHAEPlain.adata ->
   c:cipher -> res:
-  ( ((;ki) LHAEKey *  rg:range * (;ki,ad,rg) LHAEPlain.plain)
-     {rg = CipherRangeClass(ki,Length(c))}
+  ( ((;i) decryptor *  rg:range * (;i,ad,rg) LHAEPlain.plain)
+     {rg = CipherRangeClass(i,Length(c))}
   ) Result
    {
-    (Safe(ki) =>
-        (   (!k,r,p. res = Correct((k,r,p)) => ENCrypted(ki,ad,c))
-	 /\ (ENCrypted(ki,ad,c) => (?p,k,r'. res = Correct((k,r',p))))
+    (SafeId(i) =>
+        (   (!k,r,p. res = Correct((k,r,p)) => ENCrypted(i,ad,c))
+	 /\ (ENCrypted(i,ad,c) => (?p,k,r'. res = Correct((k,r',p))))
 		))}
 // The last two lines are equivalent to (but easier to verify than)
-// !p. CTXT(ki,ad,p,c) <=> (?k,r. res = Correct((k,r,p)))
+// !p. CTXT(i,ad,p,c) <=> (?k,r. res = Correct((k,r,p)))

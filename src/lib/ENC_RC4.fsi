@@ -16,6 +16,7 @@ open Bytes
 open Encode
 open TLSInfo
 open Error
+open TLSError
 open Range
 
 type cipher = bytes
@@ -24,10 +25,10 @@ type state
 type encryptor = state
 type decryptor = state
 
-val GEN: epoch -> encryptor * decryptor
-val ENC: epoch -> encryptor -> LHAEPlain.adata -> r:range -> plain -> encryptor * cipher
-val DEC: epoch -> decryptor -> LHAEPlain.adata -> c:cipher -> decryptor * plain
+val GEN: id -> encryptor * decryptor
+val ENC: id -> encryptor -> LHAEPlain.adata -> r:range -> plain -> encryptor * cipher
+val DEC: id -> decryptor -> LHAEPlain.adata -> c:cipher -> decryptor * plain
 
-val LEAK: epoch -> state -> bytes
-val COERCEe: epoch -> keyrepr -> encryptor
-val COERCEd: epoch -> keyrepr -> decryptor
+val LEAK: id -> state -> bytes
+val COERCEe: id -> keyrepr -> encryptor
+val COERCEd: id -> keyrepr -> decryptor

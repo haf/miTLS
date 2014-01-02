@@ -11,6 +11,7 @@
  *)
 
 module CoreSig
+open Bytes
 
 (* ------------------------------------------------------------------------ *)
 type sighash =
@@ -20,8 +21,8 @@ type sighash =
 | SH_SHA384
 
 type sigalg =
-| SA_RSA
-| SA_DSA
+| CORE_SA_RSA
+| CORE_SA_DSA
 
 (* ------------------------------------------------------------------------ *)
 type sigskey =
@@ -36,8 +37,8 @@ val sigalg_of_skey : sigskey -> sigalg
 val sigalg_of_pkey : sigpkey -> sigalg
 
 (* ------------------------------------------------------------------------ *)
-type text = byte array
-type sigv = byte array
+type text = bytes
+type sigv = bytes
 
 val gen    : sigalg -> sigpkey * sigskey
 val sign   : sighash option -> sigskey -> text -> sigv

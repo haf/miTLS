@@ -14,6 +14,7 @@ module DH
 
 open Bytes
 open DHGroup
+open CoreKeys
 
 type secret = Key of bytes
 
@@ -25,12 +26,14 @@ type secret = Key of bytes
 let goodPP_log = ref []
 let honest_log = ref []
 let log = ref []
-let goodPP dhparams =  exists (fun el-> el = dhparams) !goodPP_log
-let honest gx = exists (fun el-> el = gx) !honest_log
+let goodPP dhparams =  List.exists (fun el-> el = dhparams) !goodPP_log
+let honest gx = List.exists (fun el-> el = gx) !honest_log
 #endif
 
-let private pp (pg:CoreKeys.dhparams) : p * g =
-    let dhparams = pg.p, pg.g
+let private pp (pg:dhparams) : p * g =
+    let g=pg.g
+    let p=pg.p
+    let dhparams = p, g
     #if ideal
     goodPP_log := dhparams ::!goodPP_log
     #endif
@@ -45,25 +48,25 @@ let default_pp() = pp (CoreDH.load_default_params())
 let genKey p g: elt * secret =
     let ((x, _), (e, _)) = CoreDH.gen_key (dhparams p g)
     #if ideal
-    honest_log := e::!honest_log
+    honest_log := (e)::!honest_log
     #endif
-    (e, Key x)
+    (e, Key (x))
 
-let exp p g (gx:elt) (gy:elt) (Key x) : CRE.dhpms =
-    let pms = CoreDH.agreement (dhparams p g) x gy in
+let exp p g (gx:elt) (gy:elt) (Key x) : PMS.dhpms =
+    let pms = (CoreDH.agreement (dhparams p g) (x) (gy)) in
     //#begin-ideal
     #if ideal
     if honest gy && honest gx && goodPP (p,g)
     then
 
-      match tryFind (fun el -> fst el=(gx,gy)) !log with
+      match List.tryFind (fun el -> fst el=(gx,gy)) !log with
       | Some(_,pms) -> pms
       | None ->
-                 let pms=CRE.sampleDH p g gx gy
+                 let pms=PMS.sampleDH p g gx gy
                  log := ((gx,gy),pms)::!log;
                  pms
-    else CRE.coerceDH p g gx gy pms
+    else PMS.coerceDH p g gx gy pms
     //#end-ideal
     #else
-    CRE.coerceDH p g gx gy pms
+    PMS.coerceDH p g gx gy pms
     #endif

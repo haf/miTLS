@@ -18,51 +18,64 @@ module ENC
 open Bytes
 open Encode
 open TLSInfo
+open TLSConstants
 open Error
+open TLSError
 open Range
 
 // ciphers consist of one or more blocks of bytes.
 type cipher = b:bytes{Length(b) <= max_TLSCipher_fragment_length}
 
-private type (;ki:epoch) key = {k:bytes}
+private type (;ki:id) key = {k:bytes}
 
 type iv = bytes
-private type (;ki:epoch) iv3 =
+private type (;ki:id) iv3 =
 	| SomeIV of iv // SSL_3p0 and TLS_1p0
 	| NoIV         // TLS_1p0 and TLS_1p2
 
-private type (;ki:epoch)state =	{key: (;ki)key; iv: (;ki)iv3}
+private type (;ki:id) blockState =
+    {key: (;ki)key;
+     iv: (;ki)iv3}
+private type (;ki:id) streamState =
+    {skey: (;ki)key; // Ghost: Only stored so that we can LEAK it
+     sstate: CoreCiphers.rc4engine}
 
-type (;ki:epoch)encryptor = (;ki)state
-type (;ki:epoch)decryptor = (;ki)state
+private type (;ki:id,rw:rw)state =
+    | BlockCipher of (;ki)blockState
+    | StreamCipher of (;ki)streamState
+
+type (;ki:id)encryptor = (;ki,Writer)state
+type (;ki:id)decryptor = (;ki,Reader)state
 
 // We do not use the state, but an abstract ID over it, so that we can link
 // encryptor and decryptor states
-private function val StateID: ki:epoch * (;ki)state -> int
+private function val StateID: ki:id * rw:rw * (;ki,rw)state -> int
 
-val GEN:    ki:epoch -> (e:(;ki)encryptor{StateID(ki,e)=0}) * (d:(;ki)decryptor{StateID(ki,d)=0})
-val LEAK:   ki:epoch{not Safe(ki)} -> (;ki)state -> key:bytes * iv:bytes
-val COERCE: ki:epoch{not Safe(ki)} -> key:bytes -> iv:bytes -> (;ki)state
+val GEN:    ki:id -> (e:(;ki)encryptor{StateID(ki,Writer,e)=0}) * (d:(;ki)decryptor{StateID(ki,Reader,d)=0})
+val LEAK:   ki:id{not SafeId(ki)} -> rw:rw -> (;ki,rw)state -> key:bytes * iv:bytes
+val COERCE: ki:id{not SafeId(ki)} -> rw:rw -> key:bytes -> iv:bytes -> (;ki,rw)state
 
 (* an abstract predicate recording all encryption results. *)
 predicate val ENCrypted:
-  (e:epoch * ad:(;e)LHAEPlain.adata * c:cipher * 'a) -> bool // p:(;e,ad,CipherRangeClass(e,Length(c))) plain
+  (e:id * ad:(;e)LHAEPlain.adata * c:cipher * 'a) -> bool // p:(;e,ad,CipherRangeClass(e,Length(c))) plain
 
-val ENC: ki:epoch -> s:(;ki) encryptor -> ad:(;ki)LHAEPlain.adata -> r:range ->
+val ENC: ki:id -> s:(;ki) encryptor -> ad:(;ki)LHAEPlain.adata -> r:range ->
   p:(;ki,ad,r)plain ->
-  ( (s': (;ki) encryptor{StateID(ki,s') = StateID(ki,s)+1}) *
-    (c : cipher{(Safe(ki) => ENCrypted(ki,ad,c,p)) /\ Length(c)=TargetLength(ki,r)}) )
+  ( (s': (;ki) encryptor{StateID(ki,Writer,s') = StateID(ki,Writer,s)+1}) *
+    (c : cipher{(SafeId(ki) => ENCrypted(ki,ad,c,p)) /\ Length(c)=TargetLength(ki,r)}) )
 
-val DEC: ki:epoch -> s:(;ki) decryptor -> ad:(;ki)LHAEPlain.adata ->
+val DEC: ki:id -> s:(;ki) decryptor -> ad:(;ki)LHAEPlain.adata ->
   c:cipher
-  { (Safe(ki) => ?p'. ENCrypted(ki,ad,c,p')) /\ Length(c) >= MinTlen(ki) } ->
-  ( (s': (;ki) decryptor{StateID(ki,s') = StateID(ki,s)+1}) *
+  { (SafeId(ki) => ?p'. ENCrypted(ki,ad,c,p')) /\ Length(c) >= MinTlen(ki) } ->
+  ( (s': (;ki) decryptor{StateID(ki,Reader,s') = StateID(ki,Reader,s)+1}) *
     (p : (;ki,ad,CipherRangeClass(ki,Length(c)))plain {!p'. ENCrypted(ki,ad,c,p') => p=p'}))
 
 type entry =
-  (ki:epoch * ad:(;ki)LHAEPlain.adata * c:cipher * p:(;ki,ad,CipherRangeClass(ki,Length(c)))plain)
+  (ki:id * ad:(;ki)LHAEPlain.adata * c:cipher * p:(;ki,ad,CipherRangeClass(ki,Length(c)))plain)
   { ENCrypted(ki,ad,c,p) }
 
 val log: entry list ref
-val cfind: e:epoch -> c:cipher -> xs: entry list ->
+val cfind: e:id -> c:cipher -> xs: entry list ->
 	(ad:(;e)LHAEPlain.adata * rg:range * (;e,ad,rg) Encode.plain)
+
+private val lastblock:  alg:blockCipher -> c:cipher {Length(c)>=BlockSize(alg)} -> bytes

@@ -14,6 +14,7 @@
 module Handshake
 
 open Error
+open TLSError
 open TLSInfo
 open TLSConstants
 open Range

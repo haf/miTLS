@@ -15,16 +15,16 @@ open Bytes
 open TLSInfo
 open Range
 open DataStream
+open TLSError
 
 type fragment
 val fragment: epoch -> stream -> range -> delta -> fragment * stream
 val delta: epoch -> stream -> range -> fragment -> delta * stream
-
 type plain = fragment
 
-val plain: epoch -> range -> bytes -> fragment
-val repr: epoch -> range -> fragment -> bytes
+val plain: id -> range -> bytes -> fragment Result
+val repr:  id -> range -> fragment -> bytes
 
 #if ideal
-val widen: epoch -> range -> fragment -> fragment
+val widen: id -> range -> fragment -> fragment
 #endif

@@ -47,7 +47,53 @@ type OSSLBlockCipher (engine : OpenSSL.CIPHER) =
             | false -> ForDecryption
 
         member self.Process (b : byte[]) =
-            engine.Process(b)
+            let bsize = engine.BlockSize in
+
+            if (b.Length % bsize) <> 0 || b.Length = 0 then
+                raise (new ArgumentException("invalid data size"));
+            let output = Array.create (b.Length) 0uy in
+                let aout = engine.Process(b, 0, b.Length, output, 0) in
+                    assert (aout = output.Length);
+                    ignore (engine.Final(null, 0));
+                    output
+
+(* ------------------------------------------------------------------------ *)
+type OSSLAeadCipher (tsize : int, engine : OpenSSL.CIPHER) =
+    interface AeadCipher with
+        member self.Name =
+            engine.Name
+
+        member self.Direction =
+            match engine.ForEncryption with
+            | true  -> ForEncryption
+            | false -> ForDecryption
+
+        member self.Process (b : byte[]) =
+            match engine.ForEncryption with
+            | true ->
+                let output = Array.create (b.Length + tsize) 0uy
+
+                try
+                    ignore (engine.Process(b, 0, b.Length, output, 0));
+                    ignore (engine.Final(null, 0));
+                    engine.CTRL(OpenSSL.CIPHER.EVP_CTRL_GCM_GET_TAG, tsize, output, b.Length);
+                    output
+                with :? OpenSSL.EVPException ->
+                    raise AEADFailure
+
+            | false ->
+                if b.Length < tsize then
+                    raise AEADFailure;
+
+                let output = Array.create (b.Length - tsize) 0uy in
+
+                try
+                    engine.CTRL(OpenSSL.CIPHER.EVP_CTRL_GCM_SET_TAG, tsize, b, output.Length);
+                    ignore (engine.Process(b, 0, output.Length, output, 0));
+                    ignore (engine.Final(null, 0));
+                    output
+                with :? OpenSSL.EVPException ->
+                    raise AEADFailure
 
 (* ------------------------------------------------------------------------ *)
 type OSSLStreamCipher (engine : OpenSSL.SCIPHER) =
@@ -83,18 +129,50 @@ type OSSLProvider () =
                 (fun type_ -> new OSSLMessageDigest (new OpenSSL.MD(type_)) :> MessageDigest)
                 (OSSLMessageDigest.TypeOfName (name))
 
+        member self.AeadCipher (d : direction) (c : acipher) (m : amode) (k : key) =
+            let (GCM (iv, ad)) = m in
+
+            let type_ =
+                match c with
+                | acipher.AES when k.Length = (128 / 8) -> Some (OpenSSL.CType.AES128, 16)
+                | acipher.AES when k.Length = (256 / 8) -> Some (OpenSSL.CType.AES256, 16)
+                | _ -> None
+            in
+
+            try
+                match type_ with
+                | None -> None
+                | Some (type_, ts) ->
+                    let engine = new OpenSSL.CIPHER (type_, OpenSSL.CMode.GCM, (d = ForEncryption)) in
+                        engine.Key <- k;
+
+                        engine.CTRL(OpenSSL.CIPHER.EVP_CTRL_GCM_SET_IVLEN, iv.Length, null, 0);
+                        engine.CTRL(OpenSSL.CIPHER.EVP_CTRL_GCM_SET_IV_FIXED, -1, iv, 0);
+                        engine.CTRL(OpenSSL.CIPHER.EVP_CTRL_GCM_SET_IV_GEN, 0, iv, 0);
+
+                        if d = ForDecryption then begin
+                            let dummy = Array.create ts 0uy in
+                                engine.CTRL(OpenSSL.CIPHER.EVP_CTRL_GCM_SET_TAG, ts, dummy, 0)
+                        end;
+
+                        ignore (engine.Process(ad, 0, ad.Length, null, 0));
+
+                        Some (new OSSLAeadCipher(ts, engine) :> AeadCipher)
+
+            with :? OpenSSL.EVPException -> None
+
         member self.BlockCipher (d : direction) (c : cipher) (m : mode option) (k : key) =
             let mode, iv =
                 match m with
-                | None          -> (OpenSSL.CMode.ECB, None)
+                | None          -> (OpenSSL.CMode.ECB, None   )
                 | Some (CBC iv) -> (OpenSSL.CMode.CBC, Some iv)
 
             let type_ =
                 match c with
-                | DES3                          -> Some OpenSSL.CType.DES3
-                | AES when k.Length = (128 / 8) -> Some OpenSSL.CType.AES128
-                | AES when k.Length = (256 / 8) -> Some OpenSSL.CType.AES256
-                | _                             -> None
+                | cipher.DES3                          -> Some OpenSSL.CType.DES3
+                | cipher.AES when k.Length = (128 / 8) -> Some OpenSSL.CType.AES128
+                | cipher.AES when k.Length = (256 / 8) -> Some OpenSSL.CType.AES256
+                | _ -> None
             in
 
             try

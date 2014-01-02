@@ -21,9 +21,20 @@ type key = bytes
 type data = bytes
 type mac = bytes
 
+val ssl_pad1_md5:  bytes
+val ssl_pad2_md5:  bytes
+val ssl_pad1_sha1: bytes
+val ssl_pad2_sha1: bytes
+
+private val sslKeyedHashPads: hashAlg -> bytes * bytes
+private val sslKeyedHash: hashAlg -> key -> data -> mac
+private val sslKeyedHashVerify: hashAlg -> key -> data -> mac -> bool
+private val HMAC: hashAlg -> key -> data -> mac
+private val HMACVERIFY: hashAlg -> key -> data -> mac -> bool
+
 val MAC:
-  a:macAlg -> k:key {Length(k)=MacSize(a)} ->
-  data -> t:mac {Length(t)=MacSize(a)}
+  a:macAlg -> k:key {Length(k)=MacKeySize(a)} ->
+  data -> t:mac {Length(t)=MacKeySize(a)}
 val MACVERIFY:
-  a:macAlg -> k:key {Length(k)=MacSize(a)} ->
-  data -> t:mac {Length(k)=MacSize(a)} -> bool
+  a:macAlg -> k:key {Length(k)=MacKeySize(a)} ->
+  data -> t:mac {Length(k)=MacKeySize(a)} -> bool

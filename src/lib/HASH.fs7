@@ -17,4 +17,6 @@ module HASH
 open Bytes
 open TLSConstants
 
+private val hash': a:hashAlg -> bytes -> b:bytes
+
 val hash: a:hashAlg -> bytes -> b:bytes{Length(b)=HashSize(a)}

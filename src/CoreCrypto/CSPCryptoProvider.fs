@@ -73,11 +73,14 @@ type CSPProvider () =
             let engine = HashAlgorithm.Create (name) in
                 Some (new CSPMessageDigest (name, engine) :> MessageDigest)
 
+        member self.AeadCipher (d : direction) (c : acipher) (m : amode) (k : key) =
+            None
+
         member self.BlockCipher (d : direction) (c : cipher) (m : mode option) (k : key) =
             let name, engine =
                 match c with
-                | AES  -> "AES" , new AesCryptoServiceProvider       () :> SymmetricAlgorithm
-                | DES3 -> "3DES", new TripleDESCryptoServiceProvider () :> SymmetricAlgorithm
+                | cipher.AES  -> "AES" , new AesCryptoServiceProvider       () :> SymmetricAlgorithm
+                | cipher.DES3 -> "3DES", new TripleDESCryptoServiceProvider () :> SymmetricAlgorithm
             in
                 engine.Padding <- PaddingMode.None;
                 engine.KeySize <- 8 * k.Length;
