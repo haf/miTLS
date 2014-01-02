@@ -109,3 +109,7 @@ val tryFind: ('a -> bool) -> 'a list -> 'a option
 val listLength: l:('a list) -> len:nat{ListLength(l)=len}
 val listHead: l:('a list){ListLength(l) > 0} -> 'a
 val find: ('a -> bool) -> 'a list -> 'a
+
+(* random bytes generation *)
+
+val random: n:nat -> b:bytes {Length(b)=n}

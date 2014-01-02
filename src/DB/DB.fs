@@ -26,6 +26,8 @@ exception DBError of string
 
 type db = DB of SQLiteConnection
 
+let _db_lock = new Object()
+
 module Internal =
     let wrap (cb : unit -> 'a) =
         try  cb ()
@@ -39,17 +41,17 @@ module Internal =
         let db      = new SQLiteConnection(urn) in
             db.Open();
             db.DefaultTimeout <- 5;
-            let command = db.CreateCommand() in
+            use command = db.CreateCommand() in
                 command.CommandText <- request;
                 ignore (command.ExecuteNonQuery() : int);
                 DB db
 
     let closedb (DB db : db) =
-        db.Close()
+        use db = db in ()
 
     let put (DB db : db) (k : byte[]) (v : byte[]) =
         let request = "INSERT OR REPLACE INTO map (key, value) VALUES (:k, :v)" in
-        let command = db.CreateCommand() in
+        use command = db.CreateCommand() in
             command.CommandText <- request;
             command.Parameters.Add("k", DbType.Binary).Value <- k;
             command.Parameters.Add("v", DbType.Binary).Value <- v;
@@ -57,7 +59,7 @@ module Internal =
 
     let get (DB db : db) (k : byte[]) =
         let request = "SELECT value FROM map WHERE key = :k LIMIT 1" in
-        let command = db.CreateCommand() in
+        use command = db.CreateCommand() in
 
             command.CommandText <- request;
             command.Parameters.Add("k", DbType.Binary).Value <- k;
@@ -76,14 +78,14 @@ module Internal =
 
     let remove (DB db : db) (k : byte[]) =
         let request = "DELETE FROM map WHERE key = :k" in
-        let command = db.CreateCommand() in
+        use command = db.CreateCommand() in
             command.CommandText <- request;
             command.Parameters.Add("k", DbType.Binary).Value <- k;
             command.ExecuteNonQuery() <> 0
 
     let all (DB db : db) =
         let request = "SELECT key, value FROM map" in
-        let command = db.CreateCommand() in
+        use command = db.CreateCommand() in
 
             command.CommandText <- request;
 
@@ -106,7 +108,7 @@ module Internal =
 
     let keys (DB db : db) =
         let request = "SELECT key FROM map" in
-        let command = db.CreateCommand() in
+        use command = db.CreateCommand() in
 
             command.CommandText <- request;
 
@@ -125,10 +127,10 @@ module Internal =
                     reader.Close()
 
     let tx (DB db : db) (f : db -> 'a) : 'a =
-        use tx = db.BeginTransaction (IsolationLevel.ReadCommitted) in
-
-        let aout = f (DB db) in
-            tx.Commit (); aout
+        lock (_db_lock) (fun () ->
+            use tx = db.BeginTransaction (IsolationLevel.ReadCommitted) in
+            let aout = f (DB db) in
+                tx.Commit (); aout)
 
 let opendb (filename : string) =
     Internal.wrap (fun () -> Internal.opendb filename)

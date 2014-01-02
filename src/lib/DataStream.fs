@@ -84,7 +84,11 @@ type es = EmptyStream of epoch
 let init (ki:epoch) = {sb = []}
 
 let append (ki:epoch) (s:stream) (r:range) (d:delta) =
-  {sb = d.contents :: s.sb}
+#if ideal
+    {sb = d.contents :: s.sb}
+#else
+    s
+#endif
 
 let split (ki:epoch) (s:stream)  (r0:range) (r1:range) (d:delta) =
   let (_,h0) = r0 in

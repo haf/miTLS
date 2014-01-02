@@ -20,8 +20,8 @@ copy: $(dlls:%=../bin/%.dll)
 	@true
 
 dist:
-	set -e; for i in $(dlls); do     \
-	  cp $$i.dll $(distdir); \
+	set -e; for i in $(wildcard *.dll); do \
+	  cp $$i $(distdir); \
 	done
 
 make.in:

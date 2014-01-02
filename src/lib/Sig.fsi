@@ -16,7 +16,7 @@ open Bytes
 open TLSConstants
 
 (* ------------------------------------------------------------------------ *)
-type alg  = sigAlg * hashAlg
+type alg   = sigHashAlg
 
 type text = bytes
 type sigv = bytes

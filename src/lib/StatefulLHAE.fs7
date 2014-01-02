@@ -40,8 +40,8 @@ val history: ki:epoch -> rw:rw -> s:(;ki,rw) state -> h:(;ki)StatefulPlain.histo
 
 // Ideally,
 // the writer maintains a table (ki, h, ad, range, fragment, cipher) {...} [details?]
-// when SAFE(ki), the writer uses 0s instead of the actual fragment
-// when AUTH(ki), the reader decrypts by table lookup
+// when Safe(ki), the writer uses 0s instead of the actual fragment
+// when Auth(ki), the reader decrypts by table lookup
 // turning forgeries into errors; retrieving the "right" history index; returning the concrete decrypted range
 
 type cipher = LHAE.cipher

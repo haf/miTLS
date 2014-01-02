@@ -50,17 +50,6 @@ type pmsData =
 		  	      gx:(;p)DHGroup.elt (* Client *) *
 			      gy:(;p)DHGroup.elt (* Server *)
 
-// To be defined
-predicate HonestRSAPMS of pk:RSAKey.pk * pv:ProtocolVersion * encpms:bytes
-predicate HonestDHPMS of p:DHGroup.p * g:(;p)DHGroup.g *
-		  	      gx:(;p)DHGroup.elt (* Client *) *
-			      gy:(;p)DHGroup.elt (* Server *)
-
-predicate HonestPMS of pmsData
-assume !pd. HonestPMS(pd) <=>
-      ((?pk,pv,e. pd = RSAPMS(pk,pv,e) /\ HonestRSAPMS(pk,pv,e)) \/
-       (?p,g,gx,gy. pd = DHPMS(p,g,gx,gy) /\ HonestDHPMS(p,g,gx,gy)))
-
 type SessionInfo = {
     init_crand: crand;
     init_srand: srand;
@@ -125,22 +114,59 @@ val nextEpoch: e:epoch -> c:crand -> s:srand -> si:SessionInfo ->
 	e':succEpoch{Pred(e') = e /\ EpochSI(e') = si /\
 			     EpochCRand(e') = c /\ EpochSRand(e') = s}
 
-/// Predicates specifying cryptographic assumptions on algorithms
-predicate StrongAE of ProtocolVersion * cipherSuite
-predicate StrongAuth of ProtocolVersion * cipherSuite
+// Predicates specifying the honesty of keys and key material
 
-definition !pv,s. StrongAE(pv,s)   <=> (?e,m. CipherSuiteAuthEncAlg(s,pv) = MtE(e,m) /\ IND_CPA(e) /\ INT_CMA_M(m) /\ INT_CTXT(CipherSuiteAuthEncAlg(s,pv),pv))
-definition !pv,s. StrongAuth(pv,s) <=> (?e,m. CipherSuiteAuthEncAlg(s,pv) = MtE(e,m) /\ INT_CMA_M(m))
-
-predicate HonestSig of a:Sig.alg * (;a) Sig.pkey
-predicate StrongSig of Sig.alg
+predicate HonestSig of a:sigHashAlg * (;a) Sig.pkey
 definition !a,k. HonestSig(a,k) <=> Sig.Honest(a,k)
-definition !a,k. StrongSig(a) <=> Sig.Strong(a)
+
+predicate HonestRSAKey of RSAKey.pk
+definition !pk. HonestRSAKey(pk) <=> RSAKey.Honest(pk)
+
+// To be defined
+predicate HonestRSAPMS of pk:RSAKey.pk * pv:ProtocolVersion * encpms:bytes
+predicate HonestDHPMS of p:DHGroup.p * g:(;p)DHGroup.g *
+		  	      gx:(;p)DHGroup.elt (* Client *) *
+			      gy:(;p)DHGroup.elt (* Server *)
+
+predicate HonestPMS of pmsData
+assume !pd. HonestPMS(pd) <=>
+      ((?pk,pv,e. pd = RSAPMS(pk,pv,e) /\ HonestRSAPMS(pk,pv,e)) \/
+       (?p,g,gx,gy. pd = DHPMS(p,g,gx,gy) /\ HonestDHPMS(p,g,gx,gy)))
+
+// Predicates specifying cryptographic assumptions on algorithms
+predicate StrongAESI of SessionInfo
+predicate StrongAuthSI of SessionInfo
+predicate StrongAE of epoch
+predicate StrongAuth of epoch
+
+definition !e. StrongAE(e)   <=> StrongAESI(EpochSI(e))
+definition !e. StrongAuth(e) <=> StrongAuthSI(EpochSI(e))
+
+definition !si. StrongAESI(si)   <=> (?e,m. CipherSuiteAuthEncAlg(si.cipher_suite,si.protocol_version) = MtE(e,m) /\ IND_CPA(e) /\ INT_CMA_M(m) /\ INT_CTXT(CipherSuiteAuthEncAlg(si.cipher_suite,si.protocol_version),si.protocol_version))
+definition !si. StrongAuthSI(si) <=> (?e,m. CipherSuiteAuthEncAlg(si.cipher_suite,si.protocol_version) = MtE(e,m) /\ INT_CMA_M(m))
+
+predicate StrongSig of SessionInfo
+definition !si. StrongSig(si) <=> Sig.Strong(CipherSuiteSigHashAlg(si.cipher_suite))
+
+predicate StrongPRF of SessionInfo
+
+predicate StrongCRE of SessionInfo
 
 predicate StrongHS  of SessionInfo
 
 predicate SafeRSAPMS of RSAKey.pk * ProtocolVersion // The public key and protocol version yields a good rsapms
 predicate SafeDHPMS of p:DHGroup.p * (;p)DHGroup.g * (;p)DHGroup.elt * (;p)DHGroup.elt // The DH parameters, generator, and gx and gy values yield a good dhpms
+
+predicate StrongRSAPMS   of SessionInfo
+predicate StrongDHPMS    of SessionInfo
+
+definition !si. StrongHS(si) <=>
+
+		      StrongSig(si)
+		   /\ StrongPRF(si)
+           /\ StrongCRE(si)
+           /\ (StrongRSAPMS(si) \/
+	   	       StrongDHPMS(si))
 
 // Predicates specifying the security of TLS connections
 predicate type cryptopreds =
@@ -153,10 +179,10 @@ predicate type cryptopreds =
 
 definition !si. SafeSI(si) <=>
            SafeHS_SI(si) /\
-           StrongAE(si.protocol_version,si.cipher_suite)
+           StrongAESI(si)
 definition !si. AuthSI(si) <=>
            SafeHS_SI(si) /\
-           StrongAuth(si.protocol_version,si.cipher_suite)
+           StrongAuthSI(si)
 
 definition !id. SafeHS_SI(id) <=>
       StrongHS(id)

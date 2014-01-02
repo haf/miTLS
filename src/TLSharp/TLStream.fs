@@ -140,6 +140,16 @@ type TLStream(s:System.IO.Stream, options, b, ?own) =
             let conn = doHS conn
             wrapWrite conn msg
 
+    member self.GetSessionInfo () =
+        if closed then
+            raise (ObjectDisposedException("Trying to get SessionInfo on a closed connection."))
+        else
+            (* We could also pick the outgoing epoch.
+             * The user can only access an open connection, so epochs
+             * are synchronized. *)
+            let epoch = TLS.getEpochIn conn in
+            TLS.getSessionInfo epoch
+
     override this.get_CanRead()     = true
     override this.get_CanWrite()    = true
     override this.get_CanSeek()     = false

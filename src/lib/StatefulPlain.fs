@@ -57,7 +57,12 @@ type history = (nat * prehistory)
 
 type plain = fragment
 
-let consHistory (e:epoch) (h:prehistory) d r f = (d,r,f)::h
+let consHistory (e:epoch) (h:prehistory) (d:adata) (r:range) (f:fragment) =
+#if ideal
+    (d,r,f)::h
+#else
+    h
+#endif
 
 let emptyHistory (e:epoch): history = (0,[])
 let extendHistory (e:epoch) d (sh:history) (r:range) f =

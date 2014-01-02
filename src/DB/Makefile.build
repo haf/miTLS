@@ -42,6 +42,11 @@ ifeq ($(buildtype),cygwin)
 ../bin/System.Data.SQLite.dll: lib/System.Data.SQLite.dll
 	cp $< $@
 
+ifeq ($(cygarch),win64)
+../bin/SQLite.Interop.dll: lib/x64/SQLite.Interop.dll
+	cp $< $@
+else
 ../bin/SQLite.Interop.dll: lib/x86/SQLite.Interop.dll
 	cp $< $@
+endif
 endif

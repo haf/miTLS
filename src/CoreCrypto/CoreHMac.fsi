@@ -16,9 +16,7 @@ type engine
 type key = byte array
 
 val name   : engine -> string
-val update : engine -> byte array -> unit
-val mac    : engine -> byte array
-val reset  : engine -> unit
+val mac    : engine -> byte array -> byte array
 
 val md5engine    : key -> engine
 val sha1engine   : key -> engine

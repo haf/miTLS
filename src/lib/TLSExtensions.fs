@@ -206,7 +206,7 @@ let default_sigHashAlg pv cs =
 let sigHashAlg_contains (algList:Sig.alg list) (alg:Sig.alg) =
     Bytes.exists (fun a -> a = alg) algList
 
-let sigHashAlg_bySigList (algList:Sig.alg list) (sigAlgList:sigAlg list) =
+let sigHashAlg_bySigList (algList:Sig.alg list) (sigAlgList:sigAlg list):Sig.alg list =
     Bytes.choose (fun alg -> let (sigA,_) = alg in if (Bytes.exists (fun a -> a = sigA) sigAlgList) then Some(alg) else None) algList
 
 let cert_type_to_SigHashAlg ct pv =

@@ -23,7 +23,12 @@ let fragmentPlain (ki:epoch) (r:range) b = {frag = b}
 let fragmentRepr (ki:epoch) (r:range) f = f.frag
 
 let init (e:epoch) = {sb=[]}
-let extend (e:epoch) (s:stream) (r:range) (f:fragment) = {sb = f.frag :: s.sb}
+let extend (e:epoch) (s:stream) (r:range) (f:fragment) =
+#if ideal
+    {sb = f.frag :: s.sb}
+#else
+    s
+#endif
 
 let reStream (e:epoch) (s:stream) (r:range) (p:plain) (s':stream) = p
 

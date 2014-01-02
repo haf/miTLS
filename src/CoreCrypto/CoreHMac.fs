@@ -12,42 +12,25 @@
 
 module CoreHMac
 
-open Org.BouncyCastle.Crypto
-open Org.BouncyCastle.Crypto.Digests
-open Org.BouncyCastle.Crypto.Macs
-open Org.BouncyCastle.Crypto.Parameters
+open CryptoProvider
 
-type engine = HMac of HMac
+type engine = HMac of CryptoProvider.HMac
 type key    = byte[]
 
 let name (HMac engine) =
-    engine.AlgorithmName
+    engine.Name
 
-let update (HMac engine) (data : byte[]) =
-    engine.BlockUpdate(data, 0, data.Length)
+let mac (HMac engine) (b : byte[]) =
+    engine.Process(b)
 
-let mac (HMac engine) =
-    let output = Array.create (engine.GetMacSize()) 0uy in
-        ignore (engine.DoFinal(output, 0));
-        output
-
-let reset (HMac engine) =
-    engine.Reset()
-
-let new_engine (digest : IDigest) (k : key) =
-    let engine = new HMac(digest) in
-        engine.Init(new KeyParameter(k));
-        HMac engine
-
-let md5engine    (k : key) = new_engine (new MD5Digest   ()) k
-let sha1engine   (k : key) = new_engine (new Sha1Digest  ()) k
-let sha256engine (k : key) = new_engine (new Sha256Digest()) k
-let sha384engine (k : key) = new_engine (new Sha384Digest()) k
-let sha512engine (k : key) = new_engine (new Sha512Digest()) k
+let md5engine    (k : key) = HMac (CoreCrypto.HMac "MD5"    k)
+let sha1engine   (k : key) = HMac (CoreCrypto.HMac "SHA1"   k)
+let sha256engine (k : key) = HMac (CoreCrypto.HMac "SHA256" k)
+let sha384engine (k : key) = HMac (CoreCrypto.HMac "SHA384" k)
+let sha512engine (k : key) = HMac (CoreCrypto.HMac "SHA512" k)
 
 let dohmac (factory : key -> engine) (k : key) (data : byte[]) =
-    let engine = factory k in
-        update engine data; mac engine
+    mac (factory k) data
 
 let md5    (k : key) (data : byte[]) = dohmac md5engine    k data
 let sha1   (k : key) (data : byte[]) = dohmac sha1engine   k data

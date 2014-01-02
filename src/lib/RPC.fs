@@ -144,7 +144,7 @@ let doclient (request : string) =
     | DRClosed _ -> None
 
     | DRContinue conn ->
-        let nonce   = Nonce.mkRandom 2 in
+        let nonce   = random 2 in
         let request = request_bytes nonce (Bytes.utf8 request) in
 
         let msg =

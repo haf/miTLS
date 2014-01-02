@@ -16,7 +16,8 @@ open Bytes
 open TLSConstants
 
 (* ------------------------------------------------------------------------ *)
-type alg   = sigAlg * hashAlg
+
+type alg = sigHashAlg
 
 type text = bytes
 type sigv = bytes
@@ -143,3 +144,11 @@ let gen (a:alg) : pkey * skey =
     honest_log := (a,s,p)::!honest_log
     #endif
     (p,s)
+
+let leak (a:alg) (s:skey) : CoreSig.sigskey =
+    let (sk, ahash) = repr_of_skey s
+    sk
+
+let coerce (a:alg)  (p:pkey)  (csk:CoreSig.sigskey) : skey =
+    let (_,ahash)=a in
+    create_skey ahash csk

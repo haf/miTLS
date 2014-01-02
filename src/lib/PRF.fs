@@ -30,7 +30,7 @@ let strong si = true
 let corrupt si = memr !corrupted si
 let honest si = if corrupt si then false else true
 
-let sample (si:SessionInfo) = {bytes = Nonce.mkRandom 48}
+let sample (si:SessionInfo) = {bytes = random 48}
 
 // we normalize the pair to use as a shared index;
 // this function could also leave in TLSInfo

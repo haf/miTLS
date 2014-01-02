@@ -1527,7 +1527,7 @@ let startServerFull (ci:ConnectionInfo) state (cHello:ProtocolVersion * crand * 
         | Some(cs) ->
             match negotiate ch_compression_methods cfg.compressions with
             | Some(cm) ->
-                let sid = Nonce.mkRandom 32 in
+                let sid = random 32 in
                 let srand = Nonce.mkHelloRandom () in
                 (* Fill in the session info we're establishing *)
                 let si = { clientID         = []

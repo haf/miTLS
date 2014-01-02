@@ -27,7 +27,7 @@ let encrypt key pv pms =
     #if ideal
 
     let v = if RSAKey.honest key && not (CRE.corrupt (CRE.RSA_pms pms)) then
-              let fake_pms = (versionBytes pv) @|Nonce.mkRandom 46
+              let fake_pms = (versionBytes pv) @|random 46
               log := (fake_pms,pms)::!log
               fake_pms
             else
@@ -42,7 +42,7 @@ let encrypt key pv pms =
 let decrypt_int dk si cv cvCheck encPMS =
   (*@ Security measures described in RFC 5246, section 7.4.7.1 *)
   (*@ 1. Generate random data, 46 bytes, for PMS except client version *)
-  let fakepms = Nonce.mkRandom 46 in
+  let fakepms = random 46 in
   (*@ 2. Decrypt the message to recover plaintext *)
   let expected = versionBytes cv in
   match CoreACiphers.decrypt_pkcs1 (RSAKey.repr_of_rsaskey dk) encPMS with

@@ -16,7 +16,6 @@ module Nonce
 
 open Bytes
 
-val mkRandom: l:int -> b:bytes{Length(b) = l}
 val mkHelloRandom: unit -> b:(;32)lbytes
 
 private val log: (;32) lbytes list ref

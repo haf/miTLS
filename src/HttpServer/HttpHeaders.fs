@@ -48,6 +48,11 @@ type HttpHeaders () =
             | Some (_, value) -> Some value
             | None -> None
 
+    member self.GetDfl(key : string, dfl : string) =
+        match self.Get (key) with
+        | None   -> dfl
+        | Some x -> x
+
     member self.GetAll (key : string) =
         let key = normkey(key) in
             headers |> List.filter (fun (k, _) -> normkey(k) = key)

@@ -40,7 +40,7 @@ type (;ki:epoch)decryptor = (;ki)state
 // encryptor and decryptor states
 private function val StateID: ki:epoch * (;ki)state -> int
 
-val GEN: ki:epoch -> (e:(;ki)encryptor{StateID(ki,e)=0}) * (d:(;ki)decryptor{StateID(ki,d)=0})
+val GEN:    ki:epoch -> (e:(;ki)encryptor{StateID(ki,e)=0}) * (d:(;ki)decryptor{StateID(ki,d)=0})
 val LEAK:   ki:epoch{not Safe(ki)} -> (;ki)state -> key:bytes * iv:bytes
 val COERCE: ki:epoch{not Safe(ki)} -> key:bytes -> iv:bytes -> (;ki)state
 

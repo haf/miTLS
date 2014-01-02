@@ -1,6 +1,8 @@
 # -*- Makefile -*-
 
-src    = \
+MITLSWSGI ?= no
+
+srccore = \
 	Utils.fs            \
 	Mime.fs             \
 	HttpLogger.fs       \
@@ -8,23 +10,50 @@ src    = \
 	HttpHeaders.fs      \
 	HttpData.fs         \
 	HttpStreamReader.fs \
+	HttpWSGI.fs         \
 	HttpServer.fs       \
 	Program.fs
 
-deps   = ../bin/CoreCrypto.dll ../bin/TLSLib.dll ../bin/TLSStream.dll
-target = ../bin/HttpServer.exe
+wsgidll := Python.Runtime.dll
+src     := $(srccore)
+deps    := ../bin/CoreCrypto.dll ../bin/TLSLib.dll ../bin/TLSStream.dll
+target  := ../bin/HttpServer.exe
+
+include ../Makefile.config
+
+ifeq ($(MITLSWSGI),yes)
+fsflags += --define:wsgi
+deps    += ../bin/Python.Runtime.dll
+else
+src     := $(filter-out HttpWSGI.fs,$(src))
+endif
 
 .PHONY: all dist make.in
 
 all: $(target)
 
 dist:
-	cp $(src) $(distdir)
+	cp $(srccore) $(srcwsgi) $(wsgidll) $(distdir)
+	cp $(wildcard *.py) $(distdir)
 
 make.in:
 	@true
 
-$(target): $(src) $(deps)
+$(target): $(src) $(deps) wsgidll
 	$(fsc) $(fsflags) $(addprefix -r ,$(deps)) -o $@ $(src)
 
-include ../Makefile.config
+ifeq ($(MITLSWSGI),yes)
+wsgidll: ../bin/Python.Runtime.dll
+	@true
+
+ifeq ($(buildtype),cygwin)
+../bin/Python.Runtime.dll: Python.Runtime.dll
+	cp $< $@
+else
+../bin/Python.Runtime.dll: ../3rdparty/Python.Runtime.mono.dll
+	cp $< $@
+endif
+else
+wsgidll:
+	@true
+endif

@@ -48,4 +48,4 @@ let Verify (ki:epoch) key t m =
     && tmem ki t !log
     #endif
 
-let GEN (ki:epoch) = {k= Nonce.mkRandom (macKeySize(a))}
+let GEN (ki:epoch) = {k= random (macKeySize(a))}

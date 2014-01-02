@@ -38,10 +38,15 @@ type encAlg =
 	| Stream_RC4_128
 
 predicate IND_CPA of encAlg
-// some reasonable cryptographic assumptions:
+//#begin-cipherAssert
+// some reasonable cryptographic assumptions if you believe that you are sufficiently
+// protected against timing attacks (see: http://www.isg.rhul.ac.uk/tls/Lucky13.html )
 // assume(IND_CPA(CBC_Fresh(AES_128_CBC)))
 // assume(IND_CPA(CBC_Fresh(AES_256_CBC)))
-// assume(IND_CPA(Stream_RC4_128))
+// examples for wrong cryptographic assumptions:
+// assume(IND_CPA(Stream_RC4_128)) (see: http://vnhacker.blogspot.co.uk/2011/09/beast.html )
+// assume(IND_CPA(CBC_Stale(AES_256_CBC))) (see: http://www.isg.rhul.ac.uk/tls/ )
+//#end-cipherAssert
 
 type hashAlg =
     | NULL
@@ -69,6 +74,8 @@ type sigAlg =
   | SA_RSA
   | SA_DSA
   | SA_ECDSA
+
+type sigHashAlg   = sigAlg * hashAlg
 
 predicate INT_CMA_S of sigAlg * hashAlg * hashAlg list
 // INT_CMA_S(s,h,hs) indicates that signing hashes using s,h is INT-CMA,
@@ -305,6 +312,7 @@ private definition TLSENCAlg(AES_256_CBC, TLS_1p1) = CBC_Fresh(AES_256)
 private definition TLSENCAlg(AES_256_CBC, TLS_1p2) = CBC_Fresh(AES_256)
 
 function val CipherSuiteSigAlg: cipherSuite -> sigAlg
+function val CipherSuiteSigHashAlg: cipherSuite -> sigHashAlg
 function val CipherSuiteMACAlg: cipherSuite * ProtocolVersion -> macAlg
 function val CipherSuiteENCAlg: cipherSuite * ProtocolVersion -> encAlg
 function val CipherSuiteAuthEncAlg: cipherSuite * ProtocolVersion -> authencAlg
@@ -455,6 +463,7 @@ type cipherSuiteName =
     | TLS_DH_anon_WITH_AES_256_CBC_SHA256
 
 val cipherSuites_of_nameList: cipherSuiteName list -> cipherSuites
+val name_of_cipherSuite: cipherSuite -> cipherSuiteName Result
 
 type preContentType =
   | Change_cipher_spec

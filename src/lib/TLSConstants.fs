@@ -50,6 +50,8 @@ type sigAlg =
   | SA_DSA
   | SA_ECDSA
 
+type sigHashAlg   = sigAlg * hashAlg
+
 let sigAlgBytes sa =
     match sa with
     | SA_RSA   -> [|1uy|]
@@ -578,6 +580,41 @@ let cipherSuites_of_nameList (nameList: cipherSuiteName list) =
         | TLS_DH_anon_WITH_AES_128_CBC_SHA256    -> CipherSuite (DH_anon, CS_MtE (AES_128_CBC, SHA256))
         | TLS_DH_anon_WITH_AES_256_CBC_SHA256    -> CipherSuite (DH_anon, CS_MtE (AES_256_CBC, SHA256))
    ) nameList
+
+let name_of_cipherSuite cs =
+    match cs with
+    | NullCipherSuite                                      ->  correct TLS_NULL_WITH_NULL_NULL
+
+    | OnlyMACCipherSuite (RSA, MD5)                        ->  correct TLS_RSA_WITH_NULL_MD5
+    | OnlyMACCipherSuite (RSA, SHA)                        ->  correct TLS_RSA_WITH_NULL_SHA
+    | OnlyMACCipherSuite (RSA, SHA256)                     ->  correct TLS_RSA_WITH_NULL_SHA256
+    | CipherSuite (RSA, CS_MtE (RC4_128, MD5))             ->  correct TLS_RSA_WITH_RC4_128_MD5
+    | CipherSuite (RSA, CS_MtE (RC4_128, SHA))             ->  correct TLS_RSA_WITH_RC4_128_SHA
+    | CipherSuite (RSA, CS_MtE (TDES_EDE_CBC, SHA))        ->  correct TLS_RSA_WITH_3DES_EDE_CBC_SHA
+    | CipherSuite (RSA, CS_MtE (AES_128_CBC, SHA))         ->  correct TLS_RSA_WITH_AES_128_CBC_SHA
+    | CipherSuite (RSA, CS_MtE (AES_256_CBC, SHA))         ->  correct TLS_RSA_WITH_AES_256_CBC_SHA
+    | CipherSuite (RSA, CS_MtE (AES_128_CBC, SHA256))      ->  correct TLS_RSA_WITH_AES_128_CBC_SHA256
+    | CipherSuite (RSA, CS_MtE (AES_256_CBC, SHA256))      ->  correct TLS_RSA_WITH_AES_256_CBC_SHA256
+
+    | CipherSuite (DHE_DSS, CS_MtE (TDES_EDE_CBC, SHA))    ->  correct TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA
+    | CipherSuite (DHE_RSA, CS_MtE (TDES_EDE_CBC, SHA))    ->  correct TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA
+    | CipherSuite (DHE_DSS, CS_MtE (AES_128_CBC, SHA))     ->  correct TLS_DHE_DSS_WITH_AES_128_CBC_SHA
+    | CipherSuite (DHE_RSA, CS_MtE (AES_128_CBC, SHA))     ->  correct TLS_DHE_RSA_WITH_AES_128_CBC_SHA
+    | CipherSuite (DHE_DSS, CS_MtE (AES_256_CBC, SHA))     ->  correct TLS_DHE_DSS_WITH_AES_256_CBC_SHA
+    | CipherSuite (DHE_RSA, CS_MtE (AES_256_CBC, SHA))     ->  correct TLS_DHE_RSA_WITH_AES_256_CBC_SHA
+    | CipherSuite (DHE_DSS, CS_MtE (AES_128_CBC, SHA256))  ->  correct TLS_DHE_DSS_WITH_AES_128_CBC_SHA256
+    | CipherSuite (DHE_RSA, CS_MtE (AES_128_CBC, SHA256))  ->  correct TLS_DHE_RSA_WITH_AES_128_CBC_SHA256
+    | CipherSuite (DHE_DSS, CS_MtE (AES_256_CBC, SHA256))  ->  correct TLS_DHE_DSS_WITH_AES_256_CBC_SHA256
+    | CipherSuite (DHE_RSA, CS_MtE (AES_256_CBC, SHA256))  ->  correct TLS_DHE_RSA_WITH_AES_256_CBC_SHA256
+
+    | CipherSuite (DH_anon, CS_MtE (RC4_128, MD5))         ->  correct TLS_DH_anon_WITH_RC4_128_MD5
+    | CipherSuite (DH_anon, CS_MtE (TDES_EDE_CBC, SHA))    ->  correct TLS_DH_anon_WITH_3DES_EDE_CBC_SHA
+    | CipherSuite (DH_anon, CS_MtE (AES_128_CBC, SHA))     ->  correct TLS_DH_anon_WITH_AES_128_CBC_SHA
+    | CipherSuite (DH_anon, CS_MtE (AES_256_CBC, SHA))     ->  correct TLS_DH_anon_WITH_AES_256_CBC_SHA
+    | CipherSuite (DH_anon, CS_MtE (AES_128_CBC, SHA256))  ->  correct TLS_DH_anon_WITH_AES_128_CBC_SHA256
+    | CipherSuite (DH_anon, CS_MtE (AES_256_CBC, SHA256))  ->  correct TLS_DH_anon_WITH_AES_256_CBC_SHA256
+
+    | _ -> Error(AD_illegal_parameter, perror __SOURCE_FILE__ __LINE__ "Invoked on a unknown ciphersuite")
 
 (* From Formats *)
 

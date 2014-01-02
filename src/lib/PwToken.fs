@@ -42,7 +42,7 @@ let tokens = ref ([] : utk list)
 
 // ------------------------------------------------------------------------
 let create () =
-    let token = GToken (Nonce.mkRandom 256)
+    let token = GToken (random 256)
 #if verify
     Pi.assume (GoodToken(token));
 #endif

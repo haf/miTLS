@@ -30,13 +30,13 @@ val request :
    -> token    : token{RegisteredToken(UTK(username, token))}
    -> (c:Connection{
            CN(EpochSI(CnInfo(c).id_in).serverID) = username
-		/\ (   StrongAuth(EpochSI(CnInfo(c).id_in).cipher_suite)
+		/\ (   StrongAuth(CnInfo(c).id_in)
 		    /\ Honest(ServerKey(EpochSI(CnInfo(c).id_in).serverID))
 		         => AuthenticatedByServer(EpochSI(CnId(c).id_in), username))
       }) option
 
 val response : unit -> (uc:(username * Connection){
   !c, u. (u, c) = uc =>
-    ?token. StrongAuth(EpochSI(CnId(c).id_in).cipher_suite)
+    ?token. StrongAuth(CnId(c).id_in)
 	          => ClientAuthenticated(u, token) /\ GoodToken(u, token)
 }) option
