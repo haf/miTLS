@@ -68,3 +68,15 @@ given.
 - Mono framework, version 3.0.1 or above
 - F# open source edition, version 3.0 or above
 
+
+## 4. HttpServer
+
+Getting the HttpServer to run properly.
+
+```
+make
+cd src
+mkdir HttpServer/bin/Release/sessionDB
+mono bin/Release/HttpServer.exe --root-dir www-data/www-root
+```
+
