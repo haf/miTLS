@@ -1,0 +1,6 @@
+bin/
+obj/
+*.suo
+packages/
+*.userprefs
+src/www-data/
