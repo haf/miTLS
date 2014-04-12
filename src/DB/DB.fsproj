@@ -5,7 +5,7 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProductVersion>8.0.30703</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>{cad78b05-0adc-433b-954b-1f31fc6477f6}</ProjectGuid>
+    <ProjectGuid>{CAD78B05-0ADC-433B-954B-1F31FC6477F6}</ProjectGuid>
     <OutputType>Library</OutputType>
     <RootNamespace>DB</RootNamespace>
     <AssemblyName>DB</AssemblyName>
@@ -30,6 +30,7 @@
     <DefineConstants>TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
     <DocumentationFile>bin\Release\DB.XML</DocumentationFile>
+    <PlatformTarget>x86</PlatformTarget>
   </PropertyGroup>
   <PropertyGroup Condition="'$(OS)' != 'Windows_NT'">
     <DefineConstants>$(DefineConstants);__MonoSQL__</DefineConstants>
@@ -40,23 +41,6 @@
   <Import Project="$(MSBuildExtensionsPath32)\..\Microsoft SDKs\F#\3.0\Framework\v4.0\Microsoft.FSharp.Targets" Condition="Exists('$(MSBuildExtensionsPath32)\..\Microsoft SDKs\F#\3.0\Framework\v4.0\Microsoft.FSharp.Targets')" />
   <Import Project="$(MSBuildExtensionsPath32)\..\Microsoft F#\v4.0\Microsoft.FSharp.Targets" Condition="(!Exists('$(MSBuildExtensionsPath32)\..\Microsoft SDKs\F#\3.0\Framework\v4.0\Microsoft.FSharp.Targets')) And (Exists('$(MSBuildExtensionsPath32)\..\Microsoft F#\v4.0\Microsoft.FSharp.Targets'))" />
   <Import Project="$(MSBuildExtensionsPath32)\FSharp\1.0\Microsoft.FSharp.Targets" Condition="(!Exists('$(MSBuildExtensionsPath32)\..\Microsoft SDKs\F#\3.0\Framework\v4.0\Microsoft.FSharp.Targets')) And (!Exists('$(MSBuildExtensionsPath32)\..\Microsoft F#\v4.0\Microsoft.FSharp.Targets')) And (Exists('$(MSBuildExtensionsPath32)\FSharp\1.0\Microsoft.FSharp.Targets'))" />
-  <ItemGroup>
-    <Compile Include="DB.fsi" />
-    <Compile Include="DB.fs" />
-  </ItemGroup>
-  <ItemGroup>
-    <Reference Include="mscorlib" />
-    <Reference Include="FSharp.Core" />
-    <Reference Include="System" />
-    <Reference Include="System.Core" />
-    <Reference Include="System.Data" />
-    <Reference Include="System.Data.SQLite" Condition="'$(OS)' == 'Windows_NT'">
-      <HintPath>lib\System.Data.SQLite.dll</HintPath>
-    </Reference>
-    <Reference Include="Mono.Data.Sqlite" Condition="'$(OS)' != 'Windows_NT'" />
-    <Reference Include="System.Numerics" />
-    <Reference Include="System.Transactions" />
-  </ItemGroup>
   <Target Name="AfterClean">
     <CreateItem Include="$(OutDir)\*.dll;$(OutDir)\*.exe;$(OutDir)\*.mdb;$(OutDir)\*.pdb">
       <Output ItemName="ToDel" TaskParameter="Include" />
@@ -64,4 +48,28 @@
     <Delete Files="$(OutDir)\$(Name).XML" />
     <Delete Files="@(ToDel)" />
   </Target>
+  <ItemGroup>
+    <Compile Include="DB.fsi" />
+    <Compile Include="DB.fs" />
+    <None Include="x86\SQLite.Interop.dll">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Include="x64\SQLite.Interop.dll">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="mscorlib" />
+    <Reference Include="FSharp.Core" />
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Data" />
+    <Reference Include="Mono.Data.Sqlite" Condition="'$(OS)' != 'Windows_NT'" />
+    <Reference Include="System.Data.SQLite">
+      <HintPath>..\packages\System.Data.SQLite.Core.1.0.92.0\lib\net40\System.Data.SQLite.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Numerics" />
+    <Reference Include="System.Transactions" />
+  </ItemGroup>
 </Project>

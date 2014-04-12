@@ -32,7 +32,7 @@ module Internal =
     let wrap (cb : unit -> 'a) =
         try  cb ()
         with exn ->
-            fprintfn stderr "DBError: %s" exn.Message;
+            fprintfn stderr "DBError: %O" exn
             raise (DBError (exn.ToString()))
 
     let opendb (filename : string) =
