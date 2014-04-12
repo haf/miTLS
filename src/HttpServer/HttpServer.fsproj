@@ -5,7 +5,7 @@
     <Platform Condition=" '$(Platform)' == '' ">x86</Platform>
     <ProductVersion>8.0.30703</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>{a5efb536-6469-42da-bba7-416a65a02f9c}</ProjectGuid>
+    <ProjectGuid>{A5EFB536-6469-42DA-BBA7-416A65A02F9C}</ProjectGuid>
     <OutputType>Exe</OutputType>
     <RootNamespace>ConsoleApplication1</RootNamespace>
     <AssemblyName>HttpServer</AssemblyName>
@@ -38,12 +38,11 @@
     <OutputPath>bin\Release\</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
     <WarningLevel>3</WarningLevel>
-    <PlatformTarget>AnyCPU</PlatformTarget>
+    <PlatformTarget>x86</PlatformTarget>
     <DocumentationFile>bin\Release\ConsoleApplication1.XML</DocumentationFile>
-    <StartArguments>
-    </StartArguments>
-    <StartWorkingDirectory>
-    </StartWorkingDirectory>
+    <StartArguments>--root-dir www-root/ --sessionDB-dir sessionDB/ --local-name localhost</StartArguments>
+    <StartWorkingDirectory>W:\_vendor\suave\libs\miTLS\src\www-data\</StartWorkingDirectory>
+    <Commandlineparameters>--root-dir www-root/ --sessionDB-dir sessionDB/ --local-name localhost</Commandlineparameters>
   </PropertyGroup>
   <PropertyGroup Condition="'$(USEWSGI)' != ''">
     <DefineConstants>$(DefineConstants);wsgi</DefineConstants>
@@ -81,19 +80,15 @@
     <Reference Include="..\3rdparty\FSharp.PowerPack.Compatibility.dll" Condition="'$(OS)' != 'Windows_NT'" />
     <Reference Include="FSharp.PowerPack">
       <HintPath>..\packages\FSPowerPack.Community.2.1.3.1\Lib\Net40\FSharp.PowerPack.dll</HintPath>
-      <Private>True</Private>
     </Reference>
     <Reference Include="FSharp.PowerPack.Linq">
       <HintPath>..\packages\FSPowerPack.Community.2.1.3.1\Lib\Net40\FSharp.PowerPack.Linq.dll</HintPath>
-      <Private>True</Private>
     </Reference>
     <Reference Include="FSharp.PowerPack.Metadata">
       <HintPath>..\packages\FSPowerPack.Community.2.1.3.1\Lib\Net40\FSharp.PowerPack.Metadata.dll</HintPath>
-      <Private>True</Private>
     </Reference>
     <Reference Include="FSharp.PowerPack.Parallel.Seq">
       <HintPath>..\packages\FSPowerPack.Community.2.1.3.1\Lib\Net40\FSharp.PowerPack.Parallel.Seq.dll</HintPath>
-      <Private>True</Private>
     </Reference>
     <Reference Include="mscorlib" />
     <Reference Include="FSharp.Core" />
@@ -101,7 +96,7 @@
       <HintPath>..\3rdparty\pyruntime\ucs2-win\Python.Runtime.dll</HintPath>
     </Reference>
     <Reference Include="Python.Runtime" Condition="'$(USEWSGI)' != '' And '$(OS)' != 'Windows_NT'">
-      <HintPath>..\3rdparty\pyruntime\ucs4-unix\Python.Runtime.dll</HintPath>
+      <HintPath>..\3rdparty\pyruntime\ucs2-win\Python.Runtime.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
@@ -111,23 +106,19 @@
   <ItemGroup>
     <ProjectReference Include="..\CoreCrypto\CoreCrypto.fsproj">
       <Name>CoreCrypto</Name>
-      <Project>{6d4e3f46-dbf9-473b-93ba-58614114aa57}</Project>
-      <Private>True</Private>
+      <Project>{6D4E3F46-DBF9-473B-93BA-58614114AA57}</Project>
     </ProjectReference>
     <ProjectReference Include="..\lib\lib.fsproj">
       <Name>lib</Name>
-      <Project>{7283c0ef-3c40-495d-9969-79cb71b3aacc}</Project>
-      <Private>True</Private>
+      <Project>{7283C0EF-3C40-495D-9969-79CB71B3AACC}</Project>
     </ProjectReference>
     <ProjectReference Include="..\Platform\Platform.fsproj">
       <Name>Platform</Name>
-      <Project>{408e6f53-363a-4c58-9808-84a0b526324b}</Project>
-      <Private>True</Private>
+      <Project>{408E6F53-363A-4C58-9808-84A0B526324B}</Project>
     </ProjectReference>
     <ProjectReference Include="..\TLSharp\TLSharp.fsproj">
       <Name>TLSharp</Name>
-      <Project>{bdba21eb-cb44-435b-bf9a-c9393ad2a613}</Project>
-      <Private>True</Private>
+      <Project>{BDBA21EB-CB44-435B-BF9A-C9393AD2A613}</Project>
     </ProjectReference>
   </ItemGroup>
   <PropertyGroup>

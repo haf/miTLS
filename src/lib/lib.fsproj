@@ -5,7 +5,7 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProductVersion>8.0.30703</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>{7283c0ef-3c40-495d-9969-79cb71b3aacc}</ProjectGuid>
+    <ProjectGuid>{7283C0EF-3C40-495D-9969-79CB71B3AACC}</ProjectGuid>
     <OutputType>Library</OutputType>
     <RootNamespace>lib</RootNamespace>
     <AssemblyName>lib</AssemblyName>
@@ -124,9 +124,11 @@
     <OutputPath>bin\Ideal</OutputPath>
     <Tailcalls>False</Tailcalls>
     <DebugType>none</DebugType>
-    <DocumentationFile />
+    <DocumentationFile>
+    </DocumentationFile>
     <DefineConstants>ideal</DefineConstants>
-    <OtherFlags />
+    <OtherFlags>
+    </OtherFlags>
   </PropertyGroup>
   <PropertyGroup>
     <MinimumVisualStudioVersion Condition="'$(MinimumVisualStudioVersion)' == ''">11</MinimumVisualStudioVersion>
@@ -277,17 +279,15 @@
   <ItemGroup>
     <ProjectReference Include="..\CoreCrypto\CoreCrypto.fsproj">
       <Name>CoreCrypto</Name>
-      <Project>{6d4e3f46-dbf9-473b-93ba-58614114aa57}</Project>
+      <Project>{6D4E3F46-DBF9-473B-93BA-58614114AA57}</Project>
     </ProjectReference>
     <ProjectReference Include="..\DB\DB.fsproj">
       <Name>DB</Name>
-      <Project>{cad78b05-0adc-433b-954b-1f31fc6477f6}</Project>
-      <Private>True</Private>
+      <Project>{CAD78B05-0ADC-433B-954B-1F31FC6477F6}</Project>
     </ProjectReference>
     <ProjectReference Include="..\Platform\Platform.fsproj">
       <Name>Platform</Name>
-      <Project>{408e6f53-363a-4c58-9808-84a0b526324b}</Project>
-      <Private>True</Private>
+      <Project>{408E6F53-363A-4C58-9808-84A0B526324B}</Project>
     </ProjectReference>
   </ItemGroup>
   <Target Name="AfterClean">
