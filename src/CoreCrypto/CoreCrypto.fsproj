@@ -5,7 +5,7 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProductVersion>8.0.30703</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>{6d4e3f46-dbf9-473b-93ba-58614114aa57}</ProjectGuid>
+    <ProjectGuid>{6D4E3F46-DBF9-473B-93BA-58614114AA57}</ProjectGuid>
     <OutputType>Library</OutputType>
     <RootNamespace>CoreCrypto</RootNamespace>
     <AssemblyName>CoreCrypto</AssemblyName>
@@ -68,13 +68,11 @@
   <ItemGroup>
     <ProjectReference Include="..\OpenSSL\OpenSSL.csproj">
       <Name>OpenSSL</Name>
-      <Project>{db787d27-c33e-4d14-bf2c-b92cbdbf0c54}</Project>
-      <Private>True</Private>
+      <Project>{DB787D27-C33E-4D14-BF2C-B92CBDBF0C54}</Project>
     </ProjectReference>
     <ProjectReference Include="..\Platform\Platform.fsproj">
       <Name>Platform</Name>
-      <Project>{408e6f53-363a-4c58-9808-84a0b526324b}</Project>
-      <Private>True</Private>
+      <Project>{408E6F53-363A-4C58-9808-84A0B526324B}</Project>
     </ProjectReference>
   </ItemGroup>
   <PropertyGroup>
