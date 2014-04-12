@@ -106,7 +106,7 @@ let server (options : options) =
                 with
                 | :? IOException as e ->
                     noexn (fun () -> peer.Close())
-                    Console.WriteLine(e.Message)
+                    Console.WriteLine("{0}", e)
                 | e ->
                     noexn (fun () -> peer.Close())
                     raise e

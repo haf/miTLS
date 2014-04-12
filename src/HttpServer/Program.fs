@@ -22,7 +22,7 @@ let try_read_mimes path =
     try
         Mime.of_file path
     with :? IOException as e ->
-        Console.WriteLine("cannot read mime-types: " + e.Message)
+        Console.WriteLine("cannot read mime-types: {0}", e)
         Mime.MimeMap ()
 
 let tlsoptions sessionDBDir serverName clientName = {

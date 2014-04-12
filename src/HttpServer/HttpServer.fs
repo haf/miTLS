@@ -210,7 +210,7 @@ type HttpClientHandler (server : HttpServer, peer : TcpClient) =
                 while self.ReadAndServeRequest () do () done
             with
             | e ->
-                Console.WriteLine(e.Message)
+                Console.WriteLine("{0}", e)
         finally
             HttpLogger.Info "closing connection";
             noexn (fun () -> peer.Close ())
@@ -257,7 +257,7 @@ and HttpServer (localaddr : IPEndPoint, config : HttpServerConfig) =
                 with
                 | e ->
                     noexn (fun () -> peer.Close())
-                    Console.WriteLine(e.Message)
+                    Console.WriteLine("{0}", e)
 
     member self.Start () =
         if socket <> null then begin

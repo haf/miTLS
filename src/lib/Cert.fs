@@ -46,42 +46,47 @@ let oid_of_keyalg = function
 
 (* ------------------------------------------------------------------------ *)
 let x509_to_public_key (x509 : X509Certificate2) =
-    match x509.GetKeyAlgorithm() with
-    | x when x = OID_RSAEncryption ->
-        try
+    try
+        match x509.GetKeyAlgorithm() with
+        | x when x = OID_RSAEncryption ->
             let pkey = (x509.PublicKey.Key :?> RSA).ExportParameters(false) in
                 Some (CoreSig.PK_RSA (abytes pkey.Modulus, abytes pkey.Exponent))
-        with :? CryptographicException -> None
 
-    | x when x = OID_DSASignatureKey ->
-        try
+        | x when x = OID_DSASignatureKey ->
             let pkey = (x509.PublicKey.Key :?> DSA).ExportParameters(false) in
             let dsaparams : CoreKeys.dsaparams =
                 { p = abytes pkey.P; q = abytes pkey.Q; g = abytes pkey.G }
             in
                 Some (CoreSig.PK_DSA (abytes pkey.Y, dsaparams))
-        with :? CryptographicException -> None
-
-    | _ -> None
+        | algo ->
+            System.Console.Error.WriteLine("validaiton error in x509_to_secret_key, algo used: {0}, expected {1} or {2}",
+                                           algo, OID_RSAEncryption, OID_DSASignatureKey)
+            None
+    with :? CryptographicException as e ->
+        System.Console.Error.WriteLine("error in x509_to_public_key: {0}", e)
+        None
 
 let x509_to_secret_key (x509 : X509Certificate2) =
-    match x509.GetKeyAlgorithm() with
-    | x when x = OID_RSAEncryption ->
-        try
+    try
+        match x509.GetKeyAlgorithm() with
+        | x when x = OID_RSAEncryption ->
             let skey = (x509.PrivateKey :?> RSA).ExportParameters(true) in
                 Some (CoreSig.SK_RSA (abytes skey.Modulus, abytes skey.D))
-        with :? CryptographicException -> None
 
-    | x when x = OID_DSASignatureKey ->
-        try
+        | x when x = OID_DSASignatureKey ->
             let skey = (x509.PrivateKey :?> DSA).ExportParameters(true) in
             let dsaparams : CoreKeys.dsaparams =
                 { p = abytes skey.P; q = abytes skey.Q; g = abytes skey.G }
             in
                 Some (CoreSig.SK_DSA (abytes skey.X, dsaparams))
-        with :? CryptographicException -> None
 
-    | _ -> None
+        | algo ->
+            System.Console.Error.WriteLine("validaiton error in x509_to_secret_key, algo used: {0}, expected {1} or {2}",
+                                           algo, OID_RSAEncryption, OID_DSASignatureKey)
+            None
+    with :? CryptographicException as e ->
+        System.Console.Error.WriteLine("error in x509_to_secret_key: {0}", e)
+        None
 
 (* ------------------------------------------------------------------------ *)
 let x509_has_key_usage_flag strict flag (x509 : X509Certificate2) =
@@ -118,8 +123,12 @@ let x509_check_key_sig_alg_one (sigkeyalgs : Sig.alg list) (x509 : X509Certifica
 let x509_verify (x509 : X509Certificate2) =
     let chain = new X509Chain() in
         chain.ChainPolicy.RevocationMode <- X509RevocationMode.NoCheck;
-        chain.Build(x509)
-
+        let ret = chain.Build(x509)
+        if not ret then
+            System.Console.Error.WriteLine("cert {0} has invalid chain", x509.Thumbprint)
+            ret
+        else
+            ret
 (* ------------------------------------------------------------------------ *)
 let x509_chain (x509 : X509Certificate2) = (* FIX: Is certs. store must be opened ? *)
     let chain = new X509Chain() in
