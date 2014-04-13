@@ -61,6 +61,10 @@ given.
 - Visual F# 2.0
 - Power Pack for F# 2.0
 
+OR
+
+ - VS 2012 with NuGet Package Manager >2.6
+
 ### 3.b. Linux, Mac OS X and other Un*ces
 
 - Mono framework, version 3.0.1 or above
