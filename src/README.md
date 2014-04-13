@@ -107,7 +107,7 @@ let main args =
     0
 ```
 
-Compile in Xamarin Studio and pass the `crt` file (not the full pfx file) as the
+Compile in Xamarin Studio and pass the `crt` file (not the full pfx/pkcs12/p12 file) as the
 first parameter.
 
 You can now surf to https://localhost:2443/
