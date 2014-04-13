@@ -219,7 +219,9 @@ let for_key_encryption (sigkeyalgs : Sig.alg list) (h : hint) =
                         None
                 | _ -> None
         with
-        | :? KeyNotFoundException -> None
+        | :? KeyNotFoundException as e ->
+            System.Console.Error.WriteLine("problem finding certificate in for_key_encryption in Cert.fs: {0}", e)
+            None
     finally
         store.Close()
 
