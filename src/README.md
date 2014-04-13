@@ -1,9 +1,7 @@
--*- outline-mode -*-
-
 This is a pre-release of miTLS, a verified reference implementation of
 the TLS security protocol.
 
-* 1. Compilation
+## 1. Compilation
 
 To compile, usually running "make" from the top level directory is
 enough. (See below for prerequisites.)
@@ -33,7 +31,7 @@ The following make targets are available:
 The test suite is currently not released, and thus not
 available as a make target.
 
-* 2. Verification
+##  2. Verification
 
 Refinement type checking of the code base is driven by the Makefile in
 ./lib; this file has a "tc7" target for each file to be type checked.
@@ -51,19 +49,19 @@ flags to control what is passed to F7 vs F#
 Both compilation flags are disabled when compiling the concrete code,
 and enabled during type checking.
 
-* 3. Prerequisites
+## 3. Prerequisites
 
 In the following, the prerequisites for each supported platform are
 given. 
 
-** 3.a. Microsoft Windows
+### 3.a. Microsoft Windows
 
 - Cygwin, with the make utility installed
 - .NET version 4 or above
 - Visual F# 2.0
 - Power Pack for F# 2.0
 
-** 3.b. Linux, Mac OS X and other Un*ces
+### 3.b. Linux, Mac OS X and other Un*ces
 
 - Mono framework, version 3.0.1 or above
 - F# open source edition, version 3.0 or above
@@ -78,12 +76,12 @@ OS X
 ```
 cd src
 make
-mkdir -p src/www-data/sessionDB src/www-data/www-root
+mkdir -p www-data/sessionDB www-data/www-root
 cd www-data
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout localhost.pem -out localhost.crt
-openssl pkcs12 -export -out localhost.crt.p12 -in localhost.crt -inkey localhost.pem 
+openssl req -x509 -nodes -subj '/C=SE/ST=Uppland/L=Stockholm/CN=localhost' -days 365 -newkey rsa:2048 -keyout localhost.pem -out localhost.crt
+openssl pkcs12 -passout pass:default -export -out localhost.crt.p12 -in localhost.crt -inkey localhost.pem 
 certmgr -add -c -p default My localhost.crt.p12
-mono ImportCert.exe localhost.crt
+mono ImportRootCert.exe localhost.crt # see code below, compile in Xamarin Studio
 mono ../HttpServer/bin/Release/HttpServer.exe --root-dir www-root/ --sessionDB-dir sessionDB/ --local-name localhost
 ```
 
