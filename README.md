@@ -35,7 +35,7 @@ the TLS security protocol.
 ## 1. Compilation
 
 To set assembly versions, restore nugets, pack the project as a nuget, etc, you
-can just run 'bundle exec rake' like normal. You can also compile with a
+can just run `bundle exec rake` like normal. You can also compile with a
 Makefile, by `cd src/ && make`. (See below for prerequisites.)
 
 The produces executables are placed in the `bin' directory.
