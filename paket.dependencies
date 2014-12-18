@@ -1,0 +1,9 @@
+source https://www.nuget.org/api/v2
+
+nuget FSPowerPack.Community 3.0.0.0
+nuget FSPowerPack.Core.Community 3.0.0.0
+nuget FSPowerPack.Linq.Community 3.0.0.0
+nuget FSPowerPack.Metadata.Community 3.0.0.0
+nuget FSPowerPack.Parallel.Seq.Community 3.0.0.0
+nuget NuGet.CommandLine
+nuget FSharp.Core

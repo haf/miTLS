@@ -1,0 +1,16 @@
+NUGET
+  remote: https://www.nuget.org/api/v2
+  specs:
+    FSharp.Core (3.1.2.1)
+    FSPowerPack.Community (3.0.0.0)
+      FSPowerPack.Linq.Community ()
+      FSPowerPack.Metadata.Community ()
+      FSPowerPack.Parallel.Seq.Community ()
+    FSPowerPack.Core.Community (3.0.0.0)
+    FSPowerPack.Linq.Community (3.0.0.0)
+      FSPowerPack.Core.Community ()
+    FSPowerPack.Metadata.Community (3.0.0.0)
+      FSPowerPack.Core.Community ()
+    FSPowerPack.Parallel.Seq.Community (3.0.0.0)
+      FSPowerPack.Core.Community ()
+    NuGet.CommandLine (2.8.3)

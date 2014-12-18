@@ -3,6 +3,12 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2013
 VisualStudioVersion = 12.0.30723.0
 MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = ".paket", ".paket", "{0C489439-9CB5-478A-9A40-51388A5F3363}"
+	ProjectSection(SolutionItems) = preProject
+		..\paket.dependencies = ..\paket.dependencies
+		..\paket.lock = ..\paket.lock
+	EndProjectSection
+EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "lib", "lib\lib.fsproj", "{7283C0EF-3C40-495D-9969-79CB71B3AACC}"
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "TLSharp", "TLSharp\TLSharp.fsproj", "{BDBA21EB-CB44-435B-BF9A-C9393AD2A613}"
