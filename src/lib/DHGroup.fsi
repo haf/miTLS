@@ -10,17 +10,23 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module DHGroup
 
 open Bytes
+open CoreKeys
+open TLSError
 
-type p   = bytes
-type q   = bytes
 type elt = bytes
-type g   = elt
 
-type preds = Elt of p * g * bytes
+#if ideal
+val goodPP: dhparams -> bool
+type preds = Elt of bytes * bytes * elt
+#endif
 
-val genElement: p -> g -> option<q> -> elt
-val checkElement: p -> g -> bytes -> option<elt>
-val dhparams: p -> g -> option<q> -> CoreKeys.dhparams
+val genElement  : dhparams -> elt
+val checkParams : DHDB.dhdb -> nat * nat -> bytes -> bytes -> Result<(DHDB.dhdb * dhparams)>
+val checkElement: dhparams -> bytes -> option<elt>
+
+val defaultDHparams: string -> DHDB.dhdb -> nat * nat -> (DHDB.dhdb * dhparams)

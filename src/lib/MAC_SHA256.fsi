@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module MAC_SHA256
 
 open Bytes

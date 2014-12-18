@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module TLSError
 
 type alertDescription =
@@ -45,4 +47,4 @@ type alertDescription =
     | AD_no_renegotiation
     | AD_unsupported_extension
 
-type Result<'a> = Error.OptResult<alertDescription * string,'a>
+type Result<'a> = Error.optResult<alertDescription * string,'a>

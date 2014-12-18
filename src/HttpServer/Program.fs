@@ -25,7 +25,7 @@ let try_read_mimes path =
         Console.WriteLine("cannot read mime-types: " + e.Message)
         Mime.MimeMap ()
 
-let tlsoptions sessionDBDir serverName clientName = {
+let tlsoptions sessionDBDir dhDBDir serverName clientName = {
     TLSInfo.minVer = TLSConstants.ProtocolVersion.SSL_3p0
     TLSInfo.maxVer = TLSConstants.ProtocolVersion.TLS_1p2
 
@@ -55,11 +55,16 @@ let tlsoptions sessionDBDir serverName clientName = {
 
     TLSInfo.sessionDBFileName = Path.Combine(sessionDBDir, "sessionDBFile.bin")
     TLSInfo.sessionDBExpiry = Date.newTimeSpan 1 0 0 0 (* one day *)
+
+    TLSInfo.dhDBFileName = Path.Combine(dhDBDir, "dhparams-db.bin")
+    TLSInfo.dhDefaultGroupFileName = Path.Combine(dhDBDir, "default-dh.pem")
+    TLSInfo.dhPQMinLength = TLSInfo.defaultConfig.dhPQMinLength
 }
 
 type options = {
     rootdir   : string;
     certdir   : string;
+    dhdir     : string;
     localaddr : IPEndPoint;
     localname : string;
     remotename: string option;
@@ -76,12 +81,14 @@ let cmdparse = fun () ->
     let defaultPort = 2443
     let defaultRoot = "htdocs"
     let defaultCert = "sessionDB"
+    let defaultDHDB = "DHDB"
     let defaultName = "mitls.example.org"
     let defaultServ = "localhost"
 
     let options  = ref {
         rootdir   = Path.Combine(mypath, defaultRoot);
         certdir   = Path.Combine(mypath, defaultCert);
+        dhdir     = Path.Combine(mypath, defaultDHDB);
         localaddr = IPEndPoint(IPAddress.Loopback, defaultPort);
         localname = defaultName;
         remotename= None;
@@ -101,6 +108,12 @@ let cmdparse = fun () ->
             let msg = sprintf "Invalid path (certs directory): %s" s in
                 raise (ArgError msg);
         options := { !options with certdir = s }
+
+    let o_dhdir = fun s ->
+        if not (valid_path s) then
+            let msg = sprintf "Invalid path (DHDB directory): %s" s in
+                raise (ArgError msg);
+        options := { !options with dhdir = s }
 
     let o_port = fun i ->
         if i <= 0 || i > 65535 then
@@ -128,6 +141,7 @@ let cmdparse = fun () ->
     let specs = [
         "--root-dir"     , ArgType.String o_rootdir   , sprintf "\t\tHTTP root directory (default `pwd`/%s)" defaultRoot
         "--sessionDB-dir", ArgType.String o_certdir   , sprintf "\tsession database directory (default `pwd`/%s)" defaultCert
+        "--dhDB-dir"     , ArgType.String o_dhdir     , sprintf "\tdh database directory (default `pwd` /%s" defaultDHDB
         "--bind-port"    , ArgType.Int    o_port      , sprintf "\t\tlocal port (default %d)" defaultPort
         "--bind-address" , ArgType.String o_address   , "\tlocal address (default localhost)"
         "--local-name"   , ArgType.String o_localname , sprintf "\t\tlocal host name (default %s)" defaultName
@@ -148,7 +162,7 @@ let _ =
     HttpLogger.HttpLogger.Level <- HttpLogger.DEBUG;
 
     let options    = cmdparse () in
-    let tlsoptions = tlsoptions options.certdir options.localname options.remotename in
+    let tlsoptions = tlsoptions options.certdir options.dhdir options.localname options.remotename in
     let mimesmap   = try_read_mimes (Path.Combine(options.rootdir, "mime.types")) in
 
         HttpServer.run {

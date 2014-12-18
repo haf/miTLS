@@ -585,8 +585,10 @@ type cipherSuiteName =
     | TLS_DH_anon_WITH_AES_128_GCM_SHA256
     | TLS_DH_anon_WITH_AES_256_GCM_SHA384
 
+val cipherSuite_of_name: cipherSuiteName -> cipherSuite
 val cipherSuites_of_nameList: cipherSuiteName list -> cipherSuites
 val name_of_cipherSuite: cipherSuite -> cipherSuiteName Result
+val names_of_cipherSuites: cipherSuites -> (cipherSuiteName list) Result
 
 type preContentType =
   | Change_cipher_spec
@@ -668,9 +670,9 @@ private definition !h,t.
 val certificateTypeListBytes: ctl:certType list ->
            b:bytes{B(b)=CertTypesBytes(ctl)}
 val parseCertificateTypeList: b:bytes ->
-	(ctl:certType list{
+	ctl:certType list{
 
-         }) Result
+         }
 
 function val DefaultCertTypes: bool * cipherSuite -> certType list
 private definition

@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module Alert
 
 open Error
@@ -35,6 +37,7 @@ type alert_reply =
     | ALClose_notify of state
 
 val alertBytes: alertDescription -> Bytes.bytes
+val parseAlert: Bytes.bytes -> Result<alertDescription>
 
 val init: ConnectionInfo -> state
 

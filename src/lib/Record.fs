@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module Record
 
 open Bytes
@@ -87,13 +89,13 @@ let recordPacketIn e conn ct payload =
     let initEpoch = isInitEpoch e in
     match conn with
     | NullState when initEpoch ->
-        let plen = length payload in
+        (let plen = length payload in
         let rg = (plen,plen) in
         let i = id e in
         let msg = TLSFragment.fragment i ct rg payload in
-        correct(conn,rg,msg)
+        correct(conn,rg,msg))
     | SomeState(history,state) when initEpoch = false ->
-        let i = id e in
+        (let i = id e in
         let ad = StatefulPlain.makeAD i ct in
         let decr = StatefulLHAE.decrypt i state ad payload in
         match decr with
@@ -104,7 +106,7 @@ let recordPacketIn e conn ct payload =
             let msg = StatefulPlain.StAEPlainToRecordPlain e ct ad history oldH rg plain in
             let history = TLSFragment.extendHistory e ct history rg msg in
             let st' = someState e Reader history newState in
-            correct(st',rg,msg)
+            correct(st',rg,msg))
     | _ -> unexpected "[recordPacketIn] Incompatible ciphersuite and key type"
 
 let history (e:epoch) (rw:rw) s =

@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module PMS
 
 open Bytes
@@ -17,6 +19,7 @@ open TLSConstants
 open Error
 open TLSError
 open DHGroup
+open CoreKeys
 
 type rsarepr = bytes
 type rsaseed = {seed: rsarepr}
@@ -45,12 +48,12 @@ val coerceRSA: RSAKey.pk -> ProtocolVersion -> rsarepr -> rsapms
 val leakRSA: RSAKey.pk -> ProtocolVersion -> rsapms -> rsarepr
 
 #if ideal
-val honestDHPMS: p -> g -> elt -> elt -> dhpms -> bool
+val honestDHPMS: bytes -> bytes -> elt -> elt -> dhpms -> bool
 #endif
 
-val sampleDH: DHGroup.p -> DHGroup.g -> DHGroup.elt -> DHGroup.elt -> dhpms
+val sampleDH: dhparams -> DHGroup.elt -> DHGroup.elt -> dhpms
 
-val coerceDH: DHGroup.p -> DHGroup.g -> DHGroup.elt -> DHGroup.elt -> DHGroup.elt -> dhpms
+val coerceDH: dhparams -> DHGroup.elt -> DHGroup.elt -> DHGroup.elt -> dhpms
 
 (* Used when generating key material from the MS.
    The result must still be split into the various keys.
@@ -58,4 +61,4 @@ val coerceDH: DHGroup.p -> DHGroup.g -> DHGroup.elt -> DHGroup.elt -> DHGroup.el
 
 type pms =
   | RSAPMS of RSAKey.pk * ProtocolVersion * rsapms
-  | DHPMS of p * g * elt * elt * dhpms
+  | DHPMS of bytes * bytes * elt * elt * dhpms

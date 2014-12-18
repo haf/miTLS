@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module TLSInfo
 
 open Bytes
@@ -84,29 +86,29 @@ let kefAlg (si:SessionInfo) =
   match si.protocol_version with
   | SSL_3p0           -> PRF_SSL3_nested
   | TLS_1p0 | TLS_1p1 -> let x = PRF_TLS_1p01(extract_label) in x
-  | TLS_1p2           -> let ma = prfMacAlg_of_ciphersuite si.cipher_suite
+  | TLS_1p2           -> let ma = prfMacAlg_of_ciphersuite si.cipher_suite in
                          PRF_TLS_1p2(extract_label,ma)
 
 let kdfAlg (si:SessionInfo) =
   match si.protocol_version with
   | SSL_3p0           -> PRF_SSL3_nested
   | TLS_1p0 | TLS_1p1 -> let x = PRF_TLS_1p01(kdf_label) in x
-  | TLS_1p2           -> let ma = prfMacAlg_of_ciphersuite si.cipher_suite
+  | TLS_1p2           -> let ma = prfMacAlg_of_ciphersuite si.cipher_suite in
                          PRF_TLS_1p2(kdf_label,ma)
 
 let kefAlg_extended (si:SessionInfo) =
   match si.protocol_version with
   | SSL_3p0           -> PRF_SSL3_nested
   | TLS_1p0 | TLS_1p1 -> let x = PRF_TLS_1p01(extended_extract_label) in x
-  | TLS_1p2           -> let ma = prfMacAlg_of_ciphersuite si.cipher_suite
+  | TLS_1p2           -> let ma = prfMacAlg_of_ciphersuite si.cipher_suite in
                          PRF_TLS_1p2(extended_extract_label,ma)
 
 let vdAlg (si:SessionInfo) =
   si.protocol_version, si.cipher_suite
 
 let msi (si:SessionInfo) =
-  let csr = csrands si
-  let ca = kefAlg si
+  let csr = csrands si in
+  let ca = kefAlg si in
   (si.pmsId, csr, ca)
 
 type preEpoch =
@@ -175,7 +177,7 @@ type id = {
   msId   : msId;
   kdfAlg : kdfAlg;
   pv: ProtocolVersion; //Should be part of aeAlg
-  aeAlg  : aeAlg
+  aeAlg  : aeAlg;
   csrConn: csrands;
   ext: negotiatedExtensions;
   writer : Role }
@@ -212,15 +214,15 @@ let id e =
   if isInitEpoch e
   then noId
   else
-    let si     = epochSI e
-    let cs     = si.cipher_suite
-    let pv     = si.protocol_version
-    let msi    = msi si
-    let kdfAlg = kdfAlg si
-    let aeAlg  = aeAlg cs pv
-    let csr    = epochCSRands e
-    let ext    = si.extensions
-    let wr     = epochWriter e
+    let si     = epochSI e in
+    let cs     = si.cipher_suite in
+    let pv     = si.protocol_version in
+    let msi    = msi si in
+    let kdfAlg = kdfAlg si in
+    let aeAlg  = aeAlg cs pv in
+    let csr    = epochCSRands e in
+    let ext    = si.extensions in
+    let wr     = epochWriter e in
     { msId = msi;
       kdfAlg = kdfAlg;
       pv = pv;
@@ -262,52 +264,61 @@ type helloReqPolicy =
     | HRPResume
 
 type config = {
-    minVer: ProtocolVersion
-    maxVer: ProtocolVersion
-    ciphersuites: cipherSuites
-    compressions: list<Compression>
+    minVer: ProtocolVersion;
+    maxVer: ProtocolVersion;
+    ciphersuites: cipherSuites;
+    compressions: list<Compression>;
 
     (* Handshake specific options *)
 
     (* Client side *)
-    honourHelloReq: helloReqPolicy
-    allowAnonCipherSuite: bool
-    safe_resumption: bool
+    honourHelloReq: helloReqPolicy;
+    allowAnonCipherSuite: bool;
+    safe_resumption: bool;
 
     (* Server side *)
-    request_client_certificate: bool
-    check_client_version_in_pms_for_old_tls: bool
+    request_client_certificate: bool;
+    check_client_version_in_pms_for_old_tls: bool;
 
     (* Common *)
-    safe_renegotiation: bool
-    server_name: Cert.hint
-    client_name: Cert.hint
+    safe_renegotiation: bool;
+    server_name: Cert.hint;
+    client_name: Cert.hint;
 
     (* Sessions database *)
-    sessionDBFileName: string
-    sessionDBExpiry: TimeSpan
+    sessionDBFileName: string;
+    sessionDBExpiry: TimeSpan;
+
+	(* DH groups database *)
+	dhDBFileName: string;
+	dhDefaultGroupFileName: string;
+    dhPQMinLength: nat * nat
     }
 
 let defaultConfig ={
-    minVer = SSL_3p0
-    maxVer = TLS_1p2
+    minVer = SSL_3p0;
+    maxVer = TLS_1p2;
     ciphersuites = cipherSuites_of_nameList
                     [ TLS_RSA_WITH_AES_128_CBC_SHA;
-                      TLS_RSA_WITH_3DES_EDE_CBC_SHA ]
-    compressions = [ NullCompression ]
+                      TLS_RSA_WITH_3DES_EDE_CBC_SHA ];
+    compressions = [ NullCompression ];
 
-    honourHelloReq = HRPResume
-    allowAnonCipherSuite = false
-    request_client_certificate = false
-    check_client_version_in_pms_for_old_tls = true
+    honourHelloReq = HRPResume;
+    allowAnonCipherSuite = false;
+    request_client_certificate = false;
+    check_client_version_in_pms_for_old_tls = true;
 
-    safe_renegotiation = true
-    safe_resumption = false // Turn to true if it gets standard
-    server_name = "mitls.example.org"
-    client_name = "client.example.org"
+    safe_renegotiation = true;
+    safe_resumption = false; // Turn to true if it gets standard
+    server_name = "mitls.example.org";
+    client_name = "client.example.org";
 
-    sessionDBFileName = "sessionDBFile.bin"
-    sessionDBExpiry = newTimeSpan 1 0 0 0 (*@ one day, as suggested by the RFC *)
+    sessionDBFileName = "sessionDBFile.bin";
+    sessionDBExpiry = newTimeSpan 1 0 0 0; (*@ one day, as suggested by the RFC *)
+
+    dhDBFileName = "dhparams-db.bin";
+    dhDefaultGroupFileName = "default-dh.pem";
+    dhPQMinLength = (1024, 160)
     }
 
 let max_TLSPlaintext_fragment_length = 16384 (*@ 2^14 *)

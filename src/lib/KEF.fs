@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module KEF
 
 open Bytes
@@ -17,6 +19,7 @@ open TLSConstants
 open TLSInfo
 open DHGroup // The trusted setup for Diffie-Hellman computations
 open PMS
+open CoreKeys
 
 (* extractMS is internal and extracts entropy from both rsapms and dhpms bytes
 
@@ -41,11 +44,10 @@ open PMS
  *)
 
 let private extractMS si pmsBytes : PRF.masterSecret =
-    let cs = si.cipher_suite in
     let data = csrands si in
     let ca = kefAlg si in
     let res = TLSPRF.extract ca pmsBytes data 48 in
-    let i = msi si
+    let i = msi si in
     PRF.coerce i res
 
 let private accessRSAPMS (pk:RSAKey.pk) (cv:ProtocolVersion) pms =
@@ -55,7 +57,7 @@ let private accessRSAPMS (pk:RSAKey.pk) (cv:ProtocolVersion) pms =
   #endif
   | ConcreteRSAPMS(b) -> b
 
-let private accessDHPMS (p:DHGroup.p) (g:DHGroup.g) (gx:DHGroup.elt) (gy:DHGroup.elt) (pms:dhpms) =
+let private accessDHPMS (p:bytes) (g:bytes) (gx:DHGroup.elt) (gy:DHGroup.elt) (pms:dhpms) =
   match pms with
   #if ideal
   | IdealDHPMS(b) -> b.seed
@@ -94,13 +96,13 @@ let rec assoc (i:msId) entries: option<PRF.ms> =
 let extract si pms: PRF.masterSecret =
     #if ideal
     if safeCRE si then
-        let i = msi si
+        let i = msi si in
         match assoc i !log with
         | Some(ms) -> ms
         | None ->
-                let ms = PRF.sample i
-                log := (i, ms)::!log;
-                ms
+                let ms = PRF.sample i in
+                (log := (i, ms)::!log;
+                ms)
     else
     #endif
         extractMS si (accessPMS pms)
@@ -109,19 +111,19 @@ let private extractMS_extended si pmsBytes : PRF.masterSecret =
     let ca = kefAlg_extended si in
     let sh = si.session_hash in
     let res = TLSPRF.extract ca pmsBytes sh 48 in
-    let i = msi si
+    let i = msi si in
     PRF.coerce i res
 
 let extract_extended si pms =
     #if ideal
     if safeCRE si then
-        let i = msi si
+        let i = msi si in
         match assoc i !log with
         | Some(ms) -> ms
         | None ->
-                let ms = PRF.sample i
-                log := (i, ms)::!log;
-                ms
+                let ms = PRF.sample i in
+                (log := (i, ms)::!log;
+                ms)
     else
     #endif
         extractMS_extended si (accessPMS pms)

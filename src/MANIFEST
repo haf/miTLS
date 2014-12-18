@@ -9,11 +9,15 @@ Makefile.config
 
 scripts/distribution
 
+data/dh/*
+
 licenses/*.txt
 
 tls.sln
 
 easycrypt/*.ec
+
+find:packages:*
 
 find:3rdparty:*.dll
 find:DB/lib:*.dll

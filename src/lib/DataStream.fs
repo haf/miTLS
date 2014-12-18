@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module DataStream
 open TLSConstants
 open TLSInfo
@@ -28,7 +30,7 @@ let maxLHPad id len =
     let authEnc = id.aeAlg in
     match authEnc with
     | MtE(encAlg,macAlg) ->
-        match encAlg with
+        (match encAlg with
         | Stream_RC4_128 -> thisPad
         | CBC_Stale(alg) | CBC_Fresh(alg) ->
             let BS = blockSize alg in
@@ -38,7 +40,7 @@ let maxLHPad id len =
             if overflow > thisPad then
                 thisPad
             else
-                thisPad - overflow
+                thisPad - overflow)
     | AEAD(_,_) ->
         thisPad
     | _ -> unexpected "[maxLHPad] invoked on an invalid ciphersuite"
@@ -100,7 +102,7 @@ let split (ki:epoch) (s:stream)  (r0:range) (r1:range) (d:delta) =
   let (_,h0) = r0 in
   let (l1,_) = r1 in
   let len = length d.contents in
-  let n = if h0 < (len - l1) then h0 else len - l1
+  let n = if h0 < (len - l1) then h0 else len - l1 in
   let (sb0,sb1) = Bytes.split d.contents n in
   ({contents = sb0},{contents = sb1})
 

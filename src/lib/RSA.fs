@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module RSA
 
 open Bytes
@@ -61,14 +63,15 @@ let encrypt pk cv pms =
     let plaintext =
     #if ideal
       if PMS.honestRSAPMS pk cv pms then
-        let dummy_pms = versionBytes cv @| Nonce.random 46
-        log := (pk,cv,dummy_pms,pms)::!log
+        let dummy_pms = versionBytes cv @| Nonce.random 46 in
+        log := (pk,cv,dummy_pms,pms)::!log;
         dummy_pms
       else
     #endif
         PMS.leakRSA pk cv pms
+    in
     //#end-ideal1
-    let ciphertext = CoreACiphers.encrypt_pkcs1 (RSAKey.repr_of_rsapkey pk) plaintext
+    let ciphertext = CoreACiphers.encrypt_pkcs1 (RSAKey.repr_of_rsapkey pk) plaintext in
     ciphertext
 
 (*  Decrypts a ciphertext concretely to obtain a pms value.
@@ -100,20 +103,20 @@ let real_decrypt dk si cv cvCheck ciphertext =
   let fakepms = Nonce.random 46 in
   let expected = versionBytes cv in
   (* 2. Decrypt the message to recover plaintext *)
-  match CoreACiphers.decrypt_pkcs1 (RSAKey.repr_of_rsaskey dk) (ciphertext) with
+    match CoreACiphers.decrypt_pkcs1 (RSAKey.repr_of_rsaskey dk) (ciphertext) with
     | Some pms when length pms = 48 ->
         let (clVB,postPMS) = split pms 2 in
-        match si.protocol_version with
-          | TLS_1p1 | TLS_1p2 ->
-              (* 3. If new TLS version, just go on with client version and true pms.
+        (match si.protocol_version with
+            | TLS_1p1 | TLS_1p2 ->
+                (* 3. If new TLS version, just go on with client version and true pms.
                     This corresponds to a check of the client version number, but we'll fail later. *)
-              expected @| postPMS
+                expected @| postPMS
 
-          | SSL_3p0 | TLS_1p0 ->
-              (* 3. If check disabled, use client provided PMS, otherwise use our version number *)
-              if cvCheck
-              then expected @| postPMS
-              else pms
+            | SSL_3p0 | TLS_1p0 ->
+                (* 3. If check disabled, use client provided PMS, otherwise use our version number *)
+                if cvCheck
+                then expected @| postPMS
+                else pms)
     | _  ->
         (* 3. in case of decryption length error, continue with fake PMS *)
         expected @| fakepms

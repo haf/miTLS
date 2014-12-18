@@ -23,10 +23,7 @@ type dsaparams = { p : bytes; q : bytes; g : bytes; }
 type dsapkey = bytes * dsaparams
 type dsaskey = bytes * dsaparams
 
-type dhparams = { p : bytes; g : bytes; q : bytes option }
+type dhparams = { dhp : bytes; dhg : bytes; dhq : bytes; safe_prime : bool }
 
-type dhpbytes = bytes
-type dhsbytes = bytes
-
-type dhpkey = dhpbytes * dhparams
-type dhskey = dhsbytes * dhparams
+type dhpkey = bytes
+type dhskey = bytes

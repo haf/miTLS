@@ -12,6 +12,7 @@
 
 module HandshakeMessages
 open Bytes
+open CoreKeys
 open Error
 open TLSError
 open TLSInfo
@@ -298,8 +299,8 @@ private definition !b.
 
 val clientKEXExplicitBytes_DH: gx:bytes ->
 	b:bytes{B(b) = ClientKeyExchangeMsg_DHE(gx)}
-val parseClientKEXExplicit_DH: p:DHGroup.p -> g:(;p)DHGroup.g -> b:bytes ->
-	(gx:(;p,g)DHGroup.elt{
+val parseClientKEXExplicit_DH: dhp:CoreKeys.dhparams{DHGroup.PP(dhp.dhp,dhp.dhg)} -> b:bytes ->
+	(gx:(;dhp.dhp,dhp.dhg)DHGroup.elt{
 		MessageBytes(HT_client_key_exchange,B(b)) =
                 ClientKeyExchangeMsg_DHE(gx)
 	}) Result
@@ -328,9 +329,9 @@ private definition !p,g,y.
 		VLBytes(2,B(y))
 val dheParamBytes: p:bytes -> g:bytes -> y:bytes ->
 	b:bytes{B(b) = DHEParamBytes(p,g,y)}
-val parseDHEParams: b:bytes ->
- (p:DHGroup.p * g:(;p)DHGroup.g * y:(;p,g)DHGroup.elt * rem:bytes {
-	B(b) = (DHEParamBytes(p,g,y) @| B(rem))
+val parseDHEParams: DHDB.dhdb -> nat * nat -> b:bytes ->
+ ((DHDB.dhdb * dhp:CoreKeys.dhparams * y:(;dhp.dhp,dhp.dhg)DHGroup.elt * rem:bytes) {
+	DHGroup.PP(dhp.dhp,dhp.dhg) /\ B(b) = (DHEParamBytes(dhp.dhp,dhp.dhg,y) @| B(rem))
  }) Result
 
 function val ServerKeyExchangeMsg_DHE:  ProtocolVersion * p:bytes * g:bytes * y:bytes * Sig.alg * sign:bytes-> cbytes
@@ -343,17 +344,19 @@ val serverKeyExchangeBytes_DHE: dheb:bytes{?p,g,y. B(dheb) = DHEParamBytes(p,g,y
 	a:Sig.alg -> sign:bytes -> pv:ProtocolVersion ->
 	b:bytes{?p,g,y. B(dheb) = DHEParamBytes(p,g,y) /\
 		B(b) = ServerKeyExchangeMsg_DHE(pv,p,g,y,a,sign)}
-val parseServerKeyExchange_DHE: pv:ProtocolVersion -> cs:cipherSuite ->
+val parseServerKeyExchange_DHE: DHDB.dhdb -> nat * nat -> pv:ProtocolVersion -> cs:cipherSuite ->
 	b:bytes ->
-	((p:DHGroup.p * g:(;p)DHGroup.g * y:(;p,g)DHGroup.elt * a:Sig.alg * sign:bytes){
+	((DHDB.dhdb * dhp:CoreKeys.dhparams * y:(;dhp.dhp,dhp.dhg)DHGroup.elt * a:Sig.alg * sign:bytes){
+	DHGroup.PP(dhp.dhp,dhp.dhg) /\
 	MessageBytes(HT_server_key_exchange,B(b)) =
-		ServerKeyExchangeMsg_DHE(pv,p,g,y,a,sign)
+		ServerKeyExchangeMsg_DHE(pv,dhp.dhp,dhp.dhg,y,a,sign)
 	}) Result
 
 function val ServerKeyExchangeMsg_DH_anon: bytes * bytes * bytes -> cbytes
 
 val serverKeyExchangeBytes_DH_anon: bytes -> bytes -> bytes -> bytes
-val parseServerKeyExchange_DH_anon: bytes -> (p:DHGroup.p * g:(;p)DHGroup.g * y:(;p,g)DHGroup.elt) Result
+val parseServerKeyExchange_DH_anon: DHDB.dhdb -> nat * nat -> bytes ->
+	((DHDB.dhdb * dhp:CoreKeys.dhparams * y:(;dhp.dhp,dhp.dhg)DHGroup.elt){DHGroup.PP(dhp.dhp,dhp.dhg)}) Result
 
 //function val CertificateVerifyMsg: si:SessionInfo * (;si)PRF.masterSecret * a:Sig.alg * Cert.chain * (;a)Sig.pkey * log -> bytes
 function val CertificateVerifyMsg: ProtocolVersion * Sig.alg * bytes -> cbytes

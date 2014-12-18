@@ -1,12 +1,12 @@
 # -*- Makefile -*-
 
 # --------------------------------------------------------------------
-version    ?= 0.7.0
+version    ?= 0.8.0
 name        = miTLS
 distname    = $(name)-$(version)
 f7distname  = $(name)-f7-$(version)
 
-TAR = tar --format=posix --owner=0 --group=0
+TAR = gtar --format=posix --owner=0 --group=0
 
 include Makefile.config
 

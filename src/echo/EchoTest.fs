@@ -71,6 +71,7 @@ let parse_cmd () =
     let defaultCN   = None
     let defaultPort = 6000
     let defaultDB   = "sessionDB"
+    let defaultDH   = "DHDB"
 
     let options : EchoImpl.options ref = ref {
         ciphersuite   = defaultCS;
@@ -79,7 +80,8 @@ let parse_cmd () =
         servername    = defaultSN;
         clientname    = defaultCN;
         localaddr     = IPEndPoint(IPAddress.Loopback, defaultPort);
-        sessiondir    = Path.Combine(mypath, defaultDB); }
+        sessiondir    = Path.Combine(mypath, defaultDB);
+        dhdir         = Path.Combine(mypath, defaultDH); }
 
     let isclient = ref false
 
@@ -91,6 +93,12 @@ let parse_cmd () =
             let msg = sprintf "Invalid path (certs directory): %s" s in
                 raise (ArgError msg);
         options := { !options with sessiondir = s }
+
+    let o_dhdir = fun s ->
+        if not (valid_path s) then
+            let msg = sprintf "Invalid path (dh directory): %s" s in
+                raise (ArgError msg);
+        options := { !options with dhdir = s }
 
     let o_port = fun i ->
         if i <= 0 || i > 65535 then
@@ -145,6 +153,7 @@ let parse_cmd () =
     let specs =
         let specs = [
             "--sessionDB-dir", ArgType.String o_certdir    , sprintf "\tsession database directory (default `pwd`/%s)" defaultDB
+            "--dhDB-dir"     , ArgType.String o_dhdir      , sprintf "\tdh database directory (default `pwd` /%s)" defaultDH
             "--port"         , ArgType.Int    o_port       , sprintf "\t\tserver port (default %d)" defaultPort
             "--address"      , ArgType.String o_address    , "\tserver address (default localhost)"
             "--ciphers"      , ArgType.String o_ciphers    , sprintf "\t\t,-separated ciphers list (default %s)" (String.Join(",", defaultCS))

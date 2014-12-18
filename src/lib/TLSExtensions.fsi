@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module TLSExtensions
 
 open Bytes
@@ -23,21 +25,19 @@ type clientExtension
 type serverExtension
 
 // Client side
-val prepareClientExtensions: config -> ConnectionInfo -> cVerifyData -> option<sessionHash> -> list<clientExtension>
+val prepareClientExtensions: config -> ConnectionInfo -> cVerifyData -> list<clientExtension>
 val clientExtensionsBytes: list<clientExtension> -> bytes
 val parseServerExtensions: bytes -> Result<(list<serverExtension>)>
 val negotiateClientExtensions: list<clientExtension> -> list<serverExtension> -> bool -> cipherSuite -> Result<negotiatedExtensions>
 
 // Server side
 val parseClientExtensions: bytes -> cipherSuites -> Result<(list<clientExtension>)>
-val negotiateServerExtensions: list<clientExtension> -> config -> cipherSuite -> (cVerifyData * sVerifyData) -> option<sessionHash> -> (list<serverExtension> * negotiatedExtensions)
+val negotiateServerExtensions: list<clientExtension> -> config -> cipherSuite -> (cVerifyData * sVerifyData) -> bool -> (list<serverExtension> * negotiatedExtensions)
 val serverExtensionsBytes: list<serverExtension> -> bytes
 
 // Extension-specific
 val checkClientRenegotiationInfoExtension: config -> list<clientExtension> -> cVerifyData -> bool
 val checkServerRenegotiationInfoExtension: config -> list<serverExtension> -> cVerifyData -> sVerifyData -> bool
-val checkClientResumptionInfoExtension:    config -> list<clientExtension> -> sessionHash -> option<bool>
-val checkServerResumptionInfoExtension:    config -> list<serverExtension> -> sessionHash -> bool
 
 val hasExtendedMS: negotiatedExtensions -> bool
 val hasExtendedPadding: id -> bool

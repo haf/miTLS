@@ -20,6 +20,7 @@ type options = {
     clientname    : string option;
     localaddr     : System.Net.IPEndPoint;
     sessiondir    : string;
+    dhdir         : string;
 }
 
 val client : options -> unit

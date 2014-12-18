@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module PRF
 
 open Bytes
@@ -27,6 +29,9 @@ val sample: msId -> ms
 //#begin-coerce
 val coerce: msId -> repr -> ms
 //#end-coerce
+val leak: msId -> ms -> repr
+
+val deriveKeys: id -> id -> ms -> Role -> StatefulLHAE.state * StatefulLHAE.state
 
 val keyCommit: csrands -> ProtocolVersion -> aeAlg -> negotiatedExtensions -> unit
 val keyGenClient: id -> id -> ms -> StatefulLHAE.writer * StatefulLHAE.reader

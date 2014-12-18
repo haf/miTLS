@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module MAC
 
 open Bytes
@@ -83,7 +85,7 @@ let GEN ki =
     #if ideal
     // ideally, we separately keep track of "Auth" keys,
     // with an additional indirection to HMAC
-    let authId = authId ki
+    let authId = authId ki in
     if authId then
       match a with
       | MA_HMAC(SHA256) -> Key_SHA256(MAC_SHA256.GEN ki) //inlining to help the typechecker

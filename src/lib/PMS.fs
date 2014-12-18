@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module PMS
 
 (* Split from KEF *)
@@ -57,6 +59,7 @@ let leakRSA (pk:RSAKey.pk) (cv:ProtocolVersion) pms =
 
 // The trusted setup for Diffie-Hellman computations
 open DHGroup
+open CoreKeys
 
 type dhrepr = bytes
 (*private*) type dhseed = {seed: dhrepr}
@@ -69,22 +72,22 @@ type dhpms =
   | ConcreteDHPMS of dhrepr
 
 #if ideal
-let honestDHPMS (p:DHGroup.p) (g:DHGroup.g) (gx:DHGroup.elt) (gy:DHGroup.elt) pms =
+let honestDHPMS (p:bytes) (g:bytes) (gx:DHGroup.elt) (gy:DHGroup.elt) pms =
   match pms with
   | IdealDHPMS(s)    -> true
   | ConcreteDHPMS(s) -> false
 #endif
 
-let sampleDH p g (gx:DHGroup.elt) (gy:DHGroup.elt) =
-    let gz = DHGroup.genElement p g None in
+let sampleDH dhp (gx:DHGroup.elt) (gy:DHGroup.elt) =
+    let gz = DHGroup.genElement dhp in
     #if ideal
     IdealDHPMS({seed=gz})
     #else
     ConcreteDHPMS(gz)
     #endif
 
-let coerceDH (p:DHGroup.p) (g:DHGroup.g) (gx:DHGroup.elt) (gy:DHGroup.elt) b = ConcreteDHPMS(b)
+let coerceDH (dhp:dhparams) (gx:DHGroup.elt) (gy:DHGroup.elt) b = ConcreteDHPMS(b)
 
 type pms =
   | RSAPMS of RSAKey.pk * ProtocolVersion * rsapms
-  | DHPMS of p * g * elt * elt * dhpms
+  | DHPMS of bytes * bytes * elt * elt * dhpms

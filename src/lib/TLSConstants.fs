@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module TLSConstants
 
 open Bytes
@@ -203,7 +205,7 @@ let parseCompression b =
 // from usual parsing, where we fail on unknown values, but that's how TLS
 // handles compression method lists.
 let rec parseCompressions b =
-    let l = length b
+    let l = length b in
     if l > 0
     then
         let (cmB,b) = split b 1 in
@@ -401,13 +403,13 @@ let consCipherSuites (cs:cipherSuite) (css:cipherSuites) = cs::css
 // but not added to the list, and thus will be ignored by the server
 let rec parseCipherSuites b:Result<cipherSuites> =
     if length b > 1 then
-        let (b0,b1) = split b 2
+        let (b0,b1) = split b 2 in
         match parseCipherSuites b1 with
         | Correct(css) ->
-            match parseCipherSuite b0 with
+            (match parseCipherSuite b0 with
             | Error(z) -> // ignore this cs
                 correct(css)
-            | Correct(cs) -> let ncss = consCipherSuites cs css  in correct(ncss)
+            | Correct(cs) -> let ncss = consCipherSuites cs css  in correct(ncss))
         | Error(z) -> Error(z)
     else if length b = 0 then Correct([])
     else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
@@ -458,7 +460,6 @@ let sigAlg_of_ciphersuite cs =
     | _ -> unexpected "[sigAlg_of_ciphersuite] invoked on a worng ciphersuite"
 
 let contains_TLS_EMPTY_RENEGOTIATION_INFO_SCSV (css: list<cipherSuite>) =
-
     List.memr css (SCSV (TLS_EMPTY_RENEGOTIATION_INFO_SCSV))
 
 type prflabel = bytes
@@ -556,10 +557,10 @@ let macAlg_of_aeAlg ae =
     | _ -> unexpected "[macAlg_of_ciphersuite] invoked on an invalid ciphersuite"
 
 let encAlg_of_ciphersuite cs pv =
-    let a = aeAlg cs pv
+    let a = aeAlg cs pv in
     encAlg_of_aeAlg a
 let macAlg_of_ciphersuite cs pv =
-    let a = aeAlg cs pv
+    let a = aeAlg cs pv in
     macAlg_of_aeAlg a
 
 let mkIntTriple x:(int*int*int) = x
@@ -610,59 +611,54 @@ type cipherSuiteName =
     | TLS_DH_anon_WITH_AES_128_GCM_SHA256
     | TLS_DH_anon_WITH_AES_256_GCM_SHA384
 
+let cipherSuite_of_name (name:cipherSuiteName) =
+    match name with
+    | TLS_NULL_WITH_NULL_NULL                -> NullCipherSuite
+
+    | TLS_RSA_WITH_NULL_MD5                  -> OnlyMACCipherSuite (RSA, MD5)
+    | TLS_RSA_WITH_NULL_SHA                  -> OnlyMACCipherSuite (RSA, SHA)
+    | TLS_RSA_WITH_NULL_SHA256               -> OnlyMACCipherSuite (RSA, SHA256)
+    | TLS_RSA_WITH_RC4_128_MD5               -> CipherSuite (RSA, CS_MtE (RC4_128, MD5))
+    | TLS_RSA_WITH_RC4_128_SHA               -> CipherSuite (RSA, CS_MtE (RC4_128, SHA))
+    | TLS_RSA_WITH_3DES_EDE_CBC_SHA          -> CipherSuite (RSA, CS_MtE (TDES_EDE_CBC, SHA))
+    | TLS_RSA_WITH_AES_128_CBC_SHA           -> CipherSuite (RSA, CS_MtE (AES_128_CBC, SHA))
+    | TLS_RSA_WITH_AES_256_CBC_SHA           -> CipherSuite (RSA, CS_MtE (AES_256_CBC, SHA))
+    | TLS_RSA_WITH_AES_128_CBC_SHA256        -> CipherSuite (RSA, CS_MtE (AES_128_CBC, SHA256))
+    | TLS_RSA_WITH_AES_256_CBC_SHA256        -> CipherSuite (RSA, CS_MtE (AES_256_CBC, SHA256))
+
+    | TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA      -> CipherSuite (DHE_DSS, CS_MtE (TDES_EDE_CBC, SHA))
+    | TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA      -> CipherSuite (DHE_RSA, CS_MtE (TDES_EDE_CBC, SHA))
+    | TLS_DHE_DSS_WITH_AES_128_CBC_SHA       -> CipherSuite (DHE_DSS, CS_MtE (AES_128_CBC, SHA))
+    | TLS_DHE_RSA_WITH_AES_128_CBC_SHA       -> CipherSuite (DHE_RSA, CS_MtE (AES_128_CBC, SHA))
+    | TLS_DHE_DSS_WITH_AES_256_CBC_SHA       -> CipherSuite (DHE_DSS, CS_MtE (AES_256_CBC, SHA))
+    | TLS_DHE_RSA_WITH_AES_256_CBC_SHA       -> CipherSuite (DHE_RSA, CS_MtE (AES_256_CBC, SHA))
+    | TLS_DHE_DSS_WITH_AES_128_CBC_SHA256    -> CipherSuite (DHE_DSS, CS_MtE (AES_128_CBC, SHA256))
+    | TLS_DHE_RSA_WITH_AES_128_CBC_SHA256    -> CipherSuite (DHE_RSA, CS_MtE (AES_128_CBC, SHA256))
+    | TLS_DHE_DSS_WITH_AES_256_CBC_SHA256    -> CipherSuite (DHE_DSS, CS_MtE (AES_256_CBC, SHA256))
+    | TLS_DHE_RSA_WITH_AES_256_CBC_SHA256    -> CipherSuite (DHE_RSA, CS_MtE (AES_256_CBC, SHA256))
+
+    | TLS_DH_anon_WITH_RC4_128_MD5           -> CipherSuite (DH_anon, CS_MtE (RC4_128, MD5))
+    | TLS_DH_anon_WITH_3DES_EDE_CBC_SHA      -> CipherSuite (DH_anon, CS_MtE (TDES_EDE_CBC, SHA))
+    | TLS_DH_anon_WITH_AES_128_CBC_SHA       -> CipherSuite (DH_anon, CS_MtE (AES_128_CBC, SHA))
+    | TLS_DH_anon_WITH_AES_256_CBC_SHA       -> CipherSuite (DH_anon, CS_MtE (AES_256_CBC, SHA))
+    | TLS_DH_anon_WITH_AES_128_CBC_SHA256    -> CipherSuite (DH_anon, CS_MtE (AES_128_CBC, SHA256))
+    | TLS_DH_anon_WITH_AES_256_CBC_SHA256    -> CipherSuite (DH_anon, CS_MtE (AES_256_CBC, SHA256))
+
+    | TLS_RSA_WITH_AES_128_GCM_SHA256        -> CipherSuite (RSA,     CS_AEAD(AES_128_GCM, SHA256))
+    | TLS_RSA_WITH_AES_256_GCM_SHA384        -> CipherSuite (RSA,     CS_AEAD(AES_256_GCM, SHA384))
+    | TLS_DHE_RSA_WITH_AES_128_GCM_SHA256    -> CipherSuite (DHE_RSA, CS_AEAD(AES_128_GCM, SHA256))
+    | TLS_DHE_RSA_WITH_AES_256_GCM_SHA384    -> CipherSuite (DHE_RSA, CS_AEAD(AES_256_GCM, SHA384))
+    | TLS_DH_RSA_WITH_AES_128_GCM_SHA256     -> CipherSuite (DH_RSA,  CS_AEAD(AES_128_GCM, SHA256))
+    | TLS_DH_RSA_WITH_AES_256_GCM_SHA384     -> CipherSuite (DH_RSA,  CS_AEAD(AES_256_GCM, SHA384))
+    | TLS_DHE_DSS_WITH_AES_128_GCM_SHA256    -> CipherSuite (DHE_DSS, CS_AEAD(AES_128_GCM, SHA256))
+    | TLS_DHE_DSS_WITH_AES_256_GCM_SHA384    -> CipherSuite (DHE_DSS, CS_AEAD(AES_256_GCM, SHA384))
+    | TLS_DH_DSS_WITH_AES_128_GCM_SHA256     -> CipherSuite (DH_DSS,  CS_AEAD(AES_128_GCM, SHA256))
+    | TLS_DH_DSS_WITH_AES_256_GCM_SHA384     -> CipherSuite (DH_DSS,  CS_AEAD(AES_256_GCM, SHA384))
+    | TLS_DH_anon_WITH_AES_128_GCM_SHA256    -> CipherSuite (DH_anon, CS_AEAD(AES_128_GCM, SHA256))
+    | TLS_DH_anon_WITH_AES_256_GCM_SHA384    -> CipherSuite (DH_anon, CS_AEAD(AES_256_GCM, SHA384))
+
 let cipherSuites_of_nameList (nameList: list<cipherSuiteName>) =
-
-#if ideal
-   List.map (
-#else
-   List.map (
-#endif
-    fun name ->
-        match name with
-        | TLS_NULL_WITH_NULL_NULL                -> NullCipherSuite
-
-        | TLS_RSA_WITH_NULL_MD5                  -> OnlyMACCipherSuite (RSA, MD5)
-        | TLS_RSA_WITH_NULL_SHA                  -> OnlyMACCipherSuite (RSA, SHA)
-        | TLS_RSA_WITH_NULL_SHA256               -> OnlyMACCipherSuite (RSA, SHA256)
-        | TLS_RSA_WITH_RC4_128_MD5               -> CipherSuite (RSA, CS_MtE (RC4_128, MD5))
-        | TLS_RSA_WITH_RC4_128_SHA               -> CipherSuite (RSA, CS_MtE (RC4_128, SHA))
-        | TLS_RSA_WITH_3DES_EDE_CBC_SHA          -> CipherSuite (RSA, CS_MtE (TDES_EDE_CBC, SHA))
-        | TLS_RSA_WITH_AES_128_CBC_SHA           -> CipherSuite (RSA, CS_MtE (AES_128_CBC, SHA))
-        | TLS_RSA_WITH_AES_256_CBC_SHA           -> CipherSuite (RSA, CS_MtE (AES_256_CBC, SHA))
-        | TLS_RSA_WITH_AES_128_CBC_SHA256        -> CipherSuite (RSA, CS_MtE (AES_128_CBC, SHA256))
-        | TLS_RSA_WITH_AES_256_CBC_SHA256        -> CipherSuite (RSA, CS_MtE (AES_256_CBC, SHA256))
-
-        | TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA      -> CipherSuite (DHE_DSS, CS_MtE (TDES_EDE_CBC, SHA))
-        | TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA      -> CipherSuite (DHE_RSA, CS_MtE (TDES_EDE_CBC, SHA))
-        | TLS_DHE_DSS_WITH_AES_128_CBC_SHA       -> CipherSuite (DHE_DSS, CS_MtE (AES_128_CBC, SHA))
-        | TLS_DHE_RSA_WITH_AES_128_CBC_SHA       -> CipherSuite (DHE_RSA, CS_MtE (AES_128_CBC, SHA))
-        | TLS_DHE_DSS_WITH_AES_256_CBC_SHA       -> CipherSuite (DHE_DSS, CS_MtE (AES_256_CBC, SHA))
-        | TLS_DHE_RSA_WITH_AES_256_CBC_SHA       -> CipherSuite (DHE_RSA, CS_MtE (AES_256_CBC, SHA))
-        | TLS_DHE_DSS_WITH_AES_128_CBC_SHA256    -> CipherSuite (DHE_DSS, CS_MtE (AES_128_CBC, SHA256))
-        | TLS_DHE_RSA_WITH_AES_128_CBC_SHA256    -> CipherSuite (DHE_RSA, CS_MtE (AES_128_CBC, SHA256))
-        | TLS_DHE_DSS_WITH_AES_256_CBC_SHA256    -> CipherSuite (DHE_DSS, CS_MtE (AES_256_CBC, SHA256))
-        | TLS_DHE_RSA_WITH_AES_256_CBC_SHA256    -> CipherSuite (DHE_RSA, CS_MtE (AES_256_CBC, SHA256))
-
-        | TLS_DH_anon_WITH_RC4_128_MD5           -> CipherSuite (DH_anon, CS_MtE (RC4_128, MD5))
-        | TLS_DH_anon_WITH_3DES_EDE_CBC_SHA      -> CipherSuite (DH_anon, CS_MtE (TDES_EDE_CBC, SHA))
-        | TLS_DH_anon_WITH_AES_128_CBC_SHA       -> CipherSuite (DH_anon, CS_MtE (AES_128_CBC, SHA))
-        | TLS_DH_anon_WITH_AES_256_CBC_SHA       -> CipherSuite (DH_anon, CS_MtE (AES_256_CBC, SHA))
-        | TLS_DH_anon_WITH_AES_128_CBC_SHA256    -> CipherSuite (DH_anon, CS_MtE (AES_128_CBC, SHA256))
-        | TLS_DH_anon_WITH_AES_256_CBC_SHA256    -> CipherSuite (DH_anon, CS_MtE (AES_256_CBC, SHA256))
-
-        | TLS_RSA_WITH_AES_128_GCM_SHA256        -> CipherSuite (RSA,     CS_AEAD(AES_128_GCM, SHA256))
-        | TLS_RSA_WITH_AES_256_GCM_SHA384        -> CipherSuite (RSA,     CS_AEAD(AES_256_GCM, SHA384))
-        | TLS_DHE_RSA_WITH_AES_128_GCM_SHA256    -> CipherSuite (DHE_RSA, CS_AEAD(AES_128_GCM, SHA256))
-        | TLS_DHE_RSA_WITH_AES_256_GCM_SHA384    -> CipherSuite (DHE_RSA, CS_AEAD(AES_256_GCM, SHA384))
-        | TLS_DH_RSA_WITH_AES_128_GCM_SHA256     -> CipherSuite (DH_RSA,  CS_AEAD(AES_128_GCM, SHA256))
-        | TLS_DH_RSA_WITH_AES_256_GCM_SHA384     -> CipherSuite (DH_RSA,  CS_AEAD(AES_256_GCM, SHA384))
-        | TLS_DHE_DSS_WITH_AES_128_GCM_SHA256    -> CipherSuite (DHE_DSS, CS_AEAD(AES_128_GCM, SHA256))
-        | TLS_DHE_DSS_WITH_AES_256_GCM_SHA384    -> CipherSuite (DHE_DSS, CS_AEAD(AES_256_GCM, SHA384))
-        | TLS_DH_DSS_WITH_AES_128_GCM_SHA256     -> CipherSuite (DH_DSS,  CS_AEAD(AES_128_GCM, SHA256))
-        | TLS_DH_DSS_WITH_AES_256_GCM_SHA384     -> CipherSuite (DH_DSS,  CS_AEAD(AES_256_GCM, SHA384))
-        | TLS_DH_anon_WITH_AES_128_GCM_SHA256    -> CipherSuite (DH_anon, CS_AEAD(AES_128_GCM, SHA256))
-        | TLS_DH_anon_WITH_AES_256_GCM_SHA384    -> CipherSuite (DH_anon, CS_AEAD(AES_256_GCM, SHA384))
-   ) nameList
+   List.map cipherSuite_of_name nameList
 
 let name_of_cipherSuite cs =
     match cs with
@@ -712,6 +708,17 @@ let name_of_cipherSuite cs =
 
     | _ -> Error(AD_illegal_parameter, perror __SOURCE_FILE__ __LINE__ "Invoked on a unknown ciphersuite")
 
+let rec names_of_cipherSuites css =
+    match css with
+    | [] -> correct []
+    | h::t ->
+        match name_of_cipherSuite h with
+        | Error(x,y) -> Error(x,y)
+        | Correct(n) ->
+            match names_of_cipherSuites t with
+            | Error(x,y) -> Error(x,y)
+            | Correct(rem) -> correct (n::rem)
+
 (* From Formats *)
 
 type preContentType =
@@ -749,15 +756,15 @@ let seq_of_bytes b = int_of_bytes b
 let vlbytes (lSize:int) b = bytes_of_int lSize (length b) @| b
 
 let vlsplit lSize vlb : Result<(bytes * bytes)> =
-    let (vl,b) = split vlb lSize
-    let l = int_of_bytes vl
+    let (vl,b) = split vlb lSize in
+    let l = int_of_bytes vl in
     if l <= length b
     then correct(split b l)
     else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
 
 let vlparse lSize vlb : Result<bytes> =
-    let (vl,b) = split vlb lSize
-    let l = int_of_bytes vl
+    let (vl,b) = split vlb lSize in
+    let l = int_of_bytes vl in
     if l = length b
     then correct b
     else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
@@ -792,15 +799,15 @@ let rec certificateTypeListBytes ctl =
 
 let rec parseCertificateTypeList data =
   let l = length data in
-    if l = 0 then correct([])
+    if l = 0 then []
     else
         let (thisByte,data) = Bytes.split data 1 in
         match parseCertType thisByte with
+        | Error(z) -> // skip this one
+            parseCertificateTypeList data
         | Correct(ct) ->
-            match parseCertificateTypeList data with
-            | Correct(ctList) -> Correct(ct :: ctList)
-            | Error(z) -> Error(z)
-        | Error(z) -> Error(z)
+            let rem = parseCertificateTypeList data in
+            ct :: rem
 
 let defaultCertTypes sign cs =
   let alg = sigAlg_of_ciphersuite cs in

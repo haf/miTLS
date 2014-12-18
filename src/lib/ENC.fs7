@@ -110,8 +110,6 @@ val ENC_int: i:id -> s:(;i)encryptor -> tlen:nat{!enc,mac. i.aeAlg = MtE(CBC_Sta
   )
 )
 
-//{Length(c) <= max_TLSCipher_fragment_length (*MK doesn't seem to have an effect *)
-//		   /\ (!enc,mac. ki.aeAlg = MtE(CBC_Stale(enc),mac) => Length(c)>=BlockSize(enc) ) }
 private val DEC_int: ki:id -> s:(;ki) decryptor ->
 					 c:cipher {Length(c) >= MinTlen(ki) /\ Length(c) <= max_TLSCipher_fragment_length /\ (!enc,mac. ki.aeAlg = MtE(CBC_Stale(enc),mac) \/ ki.aeAlg = MtE(CBC_Fresh(enc),mac) => Length(c)>=BlockSize(enc)) } ->
-					 (;ki) decryptor * bytes
+					 (;ki) decryptor * (;PlainLength(ki,Length(c)))lbytes

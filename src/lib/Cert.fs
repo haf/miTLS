@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module Cert
 
 (* ------------------------------------------------------------------------ *)
@@ -40,19 +42,19 @@ let forall (test: (X509Certificate2 -> bool)) (chain : list<X509Certificate2>) :
 let for_signing (sigkeyalgs : list<Sig.alg>) (h : hint) (algs : list<Sig.alg>) =
     match (find_sigcert_and_alg sigkeyalgs h algs) with
     | Some(cert_and_alg) ->
-        let x509, (siga, hasha) = cert_and_alg
-        let alg = (siga, hasha)
-        match x509_to_secret_key x509, x509_to_public_key x509 with
+        let x509, (siga, hasha) = cert_and_alg in
+        let alg = (siga, hasha) in
+        (match x509_to_secret_key x509, x509_to_public_key x509 with
         | Some skey, Some pkey ->
             let chain = x509_chain x509 in
 
             if forall (x509_check_key_sig_alg_one sigkeyalgs) chain then
-                let pk = Sig.create_pkey alg pkey
+                let pk = Sig.create_pkey alg pkey in
                 #if ideal
                 if Sig.honest alg pk then
                     None //loading of honest keys not implemented yet.
                 else
-                    let sk = Sig.coerce alg pk skey
+                    let sk = Sig.coerce alg pk skey in
                     Some (x509list_to_chain chain, alg, sk)
                 #else
                 Some (x509list_to_chain chain, alg, Sig.coerce alg pk skey)
@@ -60,7 +62,7 @@ let for_signing (sigkeyalgs : list<Sig.alg>) (h : hint) (algs : list<Sig.alg>) =
             else
                 None
         | None, _ -> None
-        | _, None -> None
+        | _, None -> None)
     | None -> None
 
 (* ------------------------------------------------------------------------ *)
@@ -68,7 +70,7 @@ let for_signing (sigkeyalgs : list<Sig.alg>) (h : hint) (algs : list<Sig.alg>) =
 let for_key_encryption (sigkeyalgs : list<Sig.alg>) (h : hint) =
             match (find_enccert sigkeyalgs h) with
             | Some(x509) ->
-                match x509_to_secret_key x509, x509_to_public_key x509 with
+                (match x509_to_secret_key x509, x509_to_public_key x509 with
                 | Some (CoreSig.SK_RSA(smse)), Some(CoreSig.PK_RSA(pmpe)) ->
                     let (sm,se)=smse in
                     let (pm,pe)=pmpe in
@@ -80,8 +82,8 @@ let for_key_encryption (sigkeyalgs : list<Sig.alg>) (h : hint) =
                         if RSAKey.honest pk then
                             None //loading of honest keys not implemented yet.
                         else
-                            let csk = CoreACiphers.RSASKey(smse)
-                            let sk = RSAKey.coerce pk csk
+                            let csk = CoreACiphers.RSASKey(smse) in
+                            let sk = RSAKey.coerce pk csk in
                             Some (x509list_to_chain chain, sk)
                         #else
                         Some (x509list_to_chain chain, RSAKey.coerce pk (CoreACiphers.RSASKey(smse)))
@@ -90,7 +92,7 @@ let for_key_encryption (sigkeyalgs : list<Sig.alg>) (h : hint) =
                         None
                 | None, _ -> None
                 | _, None -> None
-                | _, _ -> Error.unexpected "[for_key_encryption] unreachable pattern match"
+                | _, _ -> Error.unexpected "[for_key_encryption] unreachable pattern match")
             | None -> None
 
 (* ------------------------------------------------------------------------ *)
@@ -139,7 +141,7 @@ let get_chain_public_encryption_key (chain : chain) =
 #endif
 
 let signing_gen (a:Sig.alg) : Sig.pkey =
-    let pk,sk = Sig.gen a
+    let pk,sk = Sig.gen a in
     pk
 
 (* ------------------------------------------------------------------------ *)
@@ -155,9 +157,9 @@ let get_hint (chain : chain) : option<hint> =
 let get_hint (chain : chain) : option<hint> =
     match chain_to_x509list chain with
     | Some x509list ->
-        match x509list with
+        (match x509list with
         | []     -> None
-        | c :: _ -> Some (get_name_info c)
+        | c :: _ -> Some (get_name_info c))
     | None -> None
 #endif
 
@@ -178,6 +180,9 @@ let certificateListBytes (certs: chain) : bytes =
     failwith "unverified"
 
 let parseCertificateListInt (toProcess:bytes) (list:chain) : Result<chain> =
+    failwith "unverified"
+
+let parseCertificateList (toProcess:bytes): Result<chain> =
     failwith "unverified"
 #else
 let certificateListBytes certs =

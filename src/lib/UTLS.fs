@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module UTLS
 
 (* ------------------------------------------------------------------------ *)
@@ -112,12 +114,12 @@ let read (fd : int) : int * bytes =
             (EI_READERROR, empty_bytes)
 
         | TLS.Close _ ->
-            unbind_fd fd
-            (EI_CLOSE, empty_bytes)
+            (unbind_fd fd;
+            (EI_CLOSE, empty_bytes))
 
         | TLS.Fatal e ->
-            unbind_fd fd
-            (EI_FATAL, Alert.alertBytes e)
+            (unbind_fd fd;
+            (EI_FATAL, Alert.alertBytes e))
 
         | TLS.Warning (conn, e) ->
             let _ = update_fd_connection fd c.canwrite conn in

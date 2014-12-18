@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module MAC_SHA256
 
 open Bytes
@@ -26,7 +28,8 @@ type key = {k:keyrepr}
 // for concreteness; the rest of the module is parametric in a
 let a = MA_HMAC(SHA256)
 
-#if ideal // We maintain a table of MACed plaintexts
+#if ideal
+// We maintain a table of MACed plaintexts
 type entry = id * text * tag
 let log:ref<list<entry>> =ref []
 let rec tmem (e:id) (t:text) (xs: list<entry>) =
@@ -38,14 +41,16 @@ let rec tmem (e:id) (t:text) (xs: list<entry>) =
 
 let Mac (ki:id) key t =
     let m = HMAC.MAC a key.k t in
-    #if ideal // We log every authenticated texts, with their index and resulting tag
+    #if ideal
+    // We log every authenticated texts, with their index and resulting tag
     log := (ki, t, m)::!log;
     #endif
     m
 
 let Verify (ki:id) key t m =
     HMAC.MACVERIFY a key.k t m
-    #if ideal // We use the log to correct any verification errors
+    #if ideal
+    // We use the log to correct any verification errors
     && tmem ki t !log
     #endif
 

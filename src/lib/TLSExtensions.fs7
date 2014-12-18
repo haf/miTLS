@@ -27,13 +27,13 @@ type serverExtension
 
 // Client side
 val clientExtensionsBytes: clientExtension list -> bytes
-val prepareClientExtensions: config -> ConnectionInfo -> cVerifyData -> sessionHash option -> clientExtension list
+val prepareClientExtensions: config -> ConnectionInfo -> cVerifyData -> clientExtension list
 val parseServerExtensions: bytes -> (serverExtension list) Result
 val negotiateClientExtensions: clientExtension list -> serverExtension list -> bool -> cipherSuite -> negotiatedExtensions Result
 
 // Server side
 val serverExtensionsBytes: serverExtension list -> bytes
-val negotiateServerExtensions: clientExtension list -> config -> cipherSuite -> (cVerifyData * sVerifyData) -> sessionHash option -> (serverExtension list * negotiatedExtensions)
+val negotiateServerExtensions: clientExtension list -> config -> cipherSuite -> (cVerifyData * sVerifyData) -> bool -> (serverExtension list * negotiatedExtensions)
 val parseClientExtensions: bytes -> cipherSuites -> (clientExtension list) Result
 
 // ------------------------------------------------------
@@ -44,13 +44,10 @@ val parseClientExtensions: bytes -> cipherSuites -> (clientExtension list) Resul
 val checkClientRenegotiationInfoExtension: config -> clientExtension list -> cVerifyData -> bool
 val checkServerRenegotiationInfoExtension: config -> serverExtension list -> cVerifyData -> sVerifyData -> bool
 
-// Secure Resumption Info (our proposal)
-
-val checkClientResumptionInfoExtension:    config -> clientExtension list -> sessionHash -> bool option
-val checkServerResumptionInfoExtension:    config -> serverExtension list -> sessionHash -> bool
-
+// Extended master secret
 val hasExtendedMS: negotiatedExtensions -> bool
 
+// Extended padding
 predicate HasExtendedPadding of id
 val hasExtendedPadding: id:id -> b:bool{b = true <=> HasExtendedPadding(id)}
 

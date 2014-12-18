@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module UntrustedCert
 
 (* ------------------------------------------------------------------------ *)
@@ -39,38 +41,38 @@ type chain = list<cert>
 let x509_to_public_key (x509 : X509Certificate2) =
     match x509.GetKeyAlgorithm() with
     | x when x = OID_RSAEncryption ->
-        try
+        (try
             let pkey = (x509.PublicKey.Key :?> RSA).ExportParameters(false) in
                 Some (CoreSig.PK_RSA (abytes pkey.Modulus, abytes pkey.Exponent))
-        with :? CryptographicException -> None
+        with :? CryptographicException -> None)
 
     | x when x = OID_DSASignatureKey ->
-        try
+        (try
             let pkey = (x509.PublicKey.Key :?> DSA).ExportParameters(false) in
             let dsaparams : CoreKeys.dsaparams =
                 { p = abytes pkey.P; q = abytes pkey.Q; g = abytes pkey.G }
             in
                 Some (CoreSig.PK_DSA (abytes pkey.Y, dsaparams))
-        with :? CryptographicException -> None
+        with :? CryptographicException -> None)
 
     | _ -> None
 
 let x509_to_secret_key (x509 : X509Certificate2) =
     match x509.GetKeyAlgorithm() with
     | x when x = OID_RSAEncryption ->
-        try
+        (try
             let skey = (x509.PrivateKey :?> RSA).ExportParameters(true) in
                 Some (CoreSig.SK_RSA (abytes skey.Modulus, abytes skey.D))
-        with :? CryptographicException -> None
+        with :? CryptographicException -> None)
 
     | x when x = OID_DSASignatureKey ->
-        try
+        (try
             let skey = (x509.PrivateKey :?> DSA).ExportParameters(true) in
             let dsaparams : CoreKeys.dsaparams =
                 { p = abytes skey.P; q = abytes skey.Q; g = abytes skey.G }
             in
                 Some (CoreSig.SK_DSA (abytes skey.X, dsaparams))
-        with :? CryptographicException -> None
+        with :? CryptographicException -> None)
 
     | _ -> None
 
@@ -170,11 +172,11 @@ let rec validate_x509list (c : X509Certificate2) (issuers : list<X509Certificate
 let validate_x509_chain (sigkeyalgs : list<Sig.alg>) (chain : chain) =
     match chain_to_x509list chain with
     | Some(x509list) ->
-        match x509list with
+        (match x509list with
         | [] -> false
         | c::issuers ->
                 Seq.forall (x509_check_key_sig_alg_one sigkeyalgs) x509list
-                && validate_x509list c issuers
+                && validate_x509list c issuers)
     | None -> false
 
 let is_for_signing (c : cert) =
@@ -190,9 +192,9 @@ let is_for_key_encryption (c : cert) =
 let find_sigcert_and_alg (sigkeyalgs : list<Sig.alg>) (h : hint) (algs : list<Sig.alg>) =
     let store = new X509Store(StoreName.My, StoreLocation.CurrentUser) in
 
-    store.Open(OpenFlags.ReadOnly ||| OpenFlags.OpenExistingOnly)
+    store.Open(OpenFlags.ReadOnly ||| OpenFlags.OpenExistingOnly);
     try
-        try
+        (try
             let pick_wrt_req_alg (x509 : X509Certificate2) =
                     let testalg ((asig, _) : Sig.alg) =
                         x509.GetKeyAlgorithm() = oid_of_keyalg asig
@@ -210,14 +212,14 @@ let find_sigcert_and_alg (sigkeyalgs : list<Sig.alg>) (h : hint) (algs : list<Si
                             |> Seq.filter (fun (x509 : X509Certificate2) -> x509_verify x509)
                             |> Seq.filter (x509_check_key_sig_alg_one sigkeyalgs)
                             |> Seq.pick pick_wrt_req_alg)
-        with :? KeyNotFoundException -> None
+        with :? KeyNotFoundException -> None)
     finally
         store.Close()
 
 let find_enccert (sigkeyalgs : list<Sig.alg>) (h : hint) =
     let store = new X509Store(StoreName.My, StoreLocation.CurrentUser) in
 
-    store.Open(OpenFlags.ReadOnly ||| OpenFlags.OpenExistingOnly)
+    store.Open(OpenFlags.ReadOnly ||| OpenFlags.OpenExistingOnly);
     try
         try
             let x509 =
@@ -243,10 +245,10 @@ let get_chain_key_algorithm (chain : chain) =
     | c :: _ ->
         match cert_to_x509 c with
         | Some(x509) ->
-                match x509.GetKeyAlgorithm () with
+                (match x509.GetKeyAlgorithm () with
                 | x when x = OID_RSAEncryption   -> Some SA_RSA
                 | x when x = OID_DSASignatureKey -> Some SA_DSA
-                | _ -> None
+                | _ -> None)
         | None -> None
 
 let get_name_info (x509 : X509Certificate2) = x509.GetNameInfo (System.Security.Cryptography.X509Certificates.X509NameType.SimpleName, false)

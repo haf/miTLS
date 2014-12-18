@@ -82,7 +82,12 @@ type config = {
 
     (* Sessions database *)
     sessionDBFileName: string;
-    sessionDBExpiry: TimeSpan
+    sessionDBExpiry: TimeSpan;
+
+	(* DH groups database *)
+	dhDBFileName: string;
+	dhDefaultGroupFileName: string;
+	dhPQMinLength: nat * nat
     }
 
 val defaultConfig: config

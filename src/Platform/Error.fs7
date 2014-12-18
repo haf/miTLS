@@ -12,13 +12,13 @@
 
 module Error
 
-type ('a,'b) OptResult =
+type ('a,'b) optResult =
     | Error of 'a
     | Correct of 'b
 
 val perror: string -> string -> string -> string
 
-val correct: x:'a -> y:('b,'a) OptResult{y = Correct(x)}
+val correct: x:'a -> y:('b,'a) optResult{y = Correct(x)}
 
 (* Both unexpected and unreachable are aliases for failwith;
    they indicate code that should never be executed at runtime.

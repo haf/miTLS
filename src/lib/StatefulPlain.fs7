@@ -149,23 +149,6 @@ private val consHistory:
 
 assume !i,ad,h,h',r,f. (AuthId(i) /\ StAEHistory(i,h) /\ StAEHistory(i,h') /\ HLength(i,h) = HLength(i,h')) => h = h'
 
-(*
-// CF 14-07-15 ??
-private assume !e,e',ad,sh,r,d.
-       (Id(e) = Id(e') /\
-       (AuthId(Id(e)) => TLSFragment.RecordSent(e',ad,Multiplexed(e',sh),r,d))) =>
-       (AuthId(Id(e)) => TLSFragment.RecordSent(e,ad,Multiplexed(e,sh),r,d))
-
-private ask !e,ct,sh,r,f.
-  (AuthId(Id(e)) => TLSFragment.RecordSent(e,ct,Multiplexed(e,sh),r,f.contents)) =>
-  (AuthId(Id(e)) => Sent(Id(e),ADBytes(Id(e),ct),sh,r,f))
-
-private ask !e,ad,sh,r,f.
-  (AuthId(Id(e)) => Sent(Id(e),ad,sh,r,f)) =>
-  (AuthId(Id(e)) => TLSFragment.RecordSent(e,ParseAD(Id(e),ad),Multiplexed(e,sh),r,f.contents))
-
-*)
-
 val RecordPlainToStAEPlain:
     e:epoch -> ct:ContentType ->
     ad:(;Id(e))adata{B(ad) = ADBytes(Id(e),ct)}  ->

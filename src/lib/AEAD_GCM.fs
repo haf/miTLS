@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module AEAD_GCM
 
 open Bytes
@@ -62,7 +64,7 @@ let ENC_int (id:id) state (adata:LHAEPlain.adata) (rg:range) text =
 
     let cipher = cb @| cipher in
     let newCounter = state.counter + 1 in
-    let state = {state with counter = newCounter}
+    let state = {state with counter = newCounter} in
     (state,cipher)
 
 #if ideal
@@ -78,7 +80,7 @@ let rec cfind (e:id) (c:cipher) (xs: list<entry>) =
 let ENC (id:id) state adata rg p =
   #if ideal
     if safeId (id) then
-      let tlen = targetLength id rg
+      let tlen = targetLength id rg in
       let text = createBytes tlen 0 in
       let (s,c) = ENC_int id state adata rg text in
       log := (id, adata, c, rg, p)::!log;
@@ -92,7 +94,7 @@ let ENC (id:id) state adata rg p =
 let DEC_int (id:id) state (adata:LHAEPlain.adata) (rg:range) cipher =
     match id.aeAlg with
     | AEAD(aealg,_) ->
-        let recordIVLen = aeadRecordIVSize aealg in
+        (let recordIVLen = aeadRecordIVSize aealg in
         let (explicit,cipher) = split cipher recordIVLen in
         let ivb = state.iv.ivb in
         let iv = ivb @| explicit in
@@ -111,7 +113,7 @@ let DEC_int (id:id) state (adata:LHAEPlain.adata) (rg:range) cipher =
             | Error(x) ->
                 let reason = "" in
                 Error(AD_bad_record_mac, reason)
-            | Correct(plain) -> correct (state,plain)
+            | Correct(plain) -> correct (state,plain))
     | _ -> unexpected "[DEC] invoked on wrong algorithm"
 
 let DEC (id:id) state (adata:LHAEPlain.adata) (rg:range) cipher  =

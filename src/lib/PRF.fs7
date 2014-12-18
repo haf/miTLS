@@ -64,6 +64,7 @@ val sample: i:msId -> (;i)ms
 val coerce: i:msId {not HonestMS(i)} -> repr -> (;i)ms
 
 //#end-coerce
+val leak: i:msId {not HonestMS(i)} -> (;i)ms -> repr
 
 (** Key derivation **)
 

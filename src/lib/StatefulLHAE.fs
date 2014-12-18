@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module StatefulLHAE
 
 // implemented using LHAE with a sequence number
@@ -58,9 +60,9 @@ let decrypt (ki:id) (r:reader) (ad0:adata) (e:cipher) =
   let res = LHAE.decrypt ki r.key ad e in
   match res with
     | Correct(x) ->
-          let (k,rg,p) = x
-          let f = LHAEPlain.LHAEPlainToStatefulPlain ki h ad0 ad rg p
-          let h = extendHistory ki ad0 h rg f
-          let r' = {history = h; key = k}
+          let (k,rg,p) = x in
+          let f = LHAEPlain.LHAEPlainToStatefulPlain ki h ad0 ad rg p in
+          let h = extendHistory ki ad0 h rg f in
+          let r' = {history = h; key = k} in
           correct ((r',rg,f))
     | Error(e) -> Error(e)

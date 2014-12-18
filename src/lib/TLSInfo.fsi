@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module TLSInfo
 
 open Bytes
@@ -131,30 +133,35 @@ type helloReqPolicy =
     | HRPResume
 
 type config = {
-    minVer: ProtocolVersion
-    maxVer: ProtocolVersion
-    ciphersuites: cipherSuites
-    compressions: list<Compression>
+    minVer: ProtocolVersion;
+    maxVer: ProtocolVersion;
+    ciphersuites: cipherSuites;
+    compressions: list<Compression>;
 
     (* Handshake specific options *)
 
     (* Client side *)
-    honourHelloReq: helloReqPolicy
-    allowAnonCipherSuite: bool
-    safe_resumption: bool
+    honourHelloReq: helloReqPolicy;
+    allowAnonCipherSuite: bool;
+    safe_resumption: bool;
 
     (* Server side *)
-    request_client_certificate: bool
-    check_client_version_in_pms_for_old_tls: bool
+    request_client_certificate: bool;
+    check_client_version_in_pms_for_old_tls: bool;
 
     (* Common *)
-    safe_renegotiation: bool
-    server_name: Cert.hint
-    client_name: Cert.hint
+    safe_renegotiation: bool;
+    server_name: Cert.hint;
+    client_name: Cert.hint;
 
     (* Sessions database *)
-    sessionDBFileName: string
-    sessionDBExpiry: TimeSpan
+    sessionDBFileName: string;
+    sessionDBExpiry: TimeSpan;
+
+	(* DH groups database *)
+	dhDBFileName: string;
+	dhDefaultGroupFileName: string;
+    dhPQMinLength: nat * nat
     }
 
 val defaultConfig: config

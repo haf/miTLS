@@ -64,6 +64,9 @@ type text = bytes
 type (;a:alg) sigv = bytes
   // we could be more precise and specify their size: 36 with RSA, 20 with DSA
 
+private val sigalg_of_skeyparams: CoreSig.sigskey -> TLSConstants.sigAlg
+private val sigalg_of_pkeyparams: CoreSig.sigpkey -> TLSConstants.sigAlg
+
 //********************** Ideal Functionality for Signing ***********************
 
 predicate Strong of alg

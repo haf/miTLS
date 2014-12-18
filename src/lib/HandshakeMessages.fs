@@ -10,10 +10,13 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 (* Handshake protocol messages *)
 module HandshakeMessages
 
 open Bytes
+open CoreKeys
 open Error
 open TLSError
 open TLSConstants
@@ -144,11 +147,41 @@ type sVerifyData = bytes (* ServerFinished payload *)
 
 type chello = | ClientHelloMsg of (bytes * ProtocolVersion * random * sessionID * cipherSuites * list<Compression> * bytes)
 
-type preds = ServerLogBeforeClientCertificateVerifyRSA of SessionInfo * bytes
-            |ServerLogBeforeClientCertificateVerify of SessionInfo * bytes
-            |ServerLogBeforeClientCertificateVerifyDHE of SessionInfo * bytes
-            |ServerLogBeforeClientFinished of SessionInfo * bytes
-            |UpdatesClientAuth of SessionInfo * SessionInfo
+#if verify
+type preds =
+    | ServerLogBeforeClientCertificateVerifyRSA of SessionInfo * bytes
+    | ServerLogBeforeClientCertificateVerify of SessionInfo * bytes
+    | ServerLogBeforeClientCertificateVerifyDHE of SessionInfo * bytes
+    | ServerLogBeforeClientFinished of SessionInfo * bytes
+    | UpdatesClientAuth of SessionInfo * SessionInfo
+    | ClientLogBeforeClientFinishedRSA_NoAuth of SessionInfo * log
+    | UpdatesPmsClientID of SessionInfo * SessionInfo
+    | ClientLogBeforeCertificateVerifyRSA_Auth of SessionInfo * log
+    | ClientLogBeforeClientFinishedRSA_TryNoAuth of SessionInfo * log
+    | ClientLogBeforeClientFinishedRSA_Auth of SessionInfo * log
+    | ClientLogBeforeCertificateVerifyDHE_Auth of SessionInfo * log
+    | ClientLogBeforeClientFinishedDHE_Auth of SessionInfo * log
+    | ClientLogBeforeClientFinishedDHE_TryNoAuth of SessionInfo * log
+    | ClientLogBeforeClientFinishedDHE_NoAuth of SessionInfo * log
+    | UpdatesServerSigAlg of SessionInfo * SessionInfo
+    | ClientLogBeforeServerHelloDoneRSA_NoAuth of SessionInfo * log
+    | ClientLogAfterServerHelloDoneRSA of SessionInfo * log
+    | ClientLogBeforeServerHelloDoneDHE_NoAuth of SessionInfo * log
+    | ClientLogAfterServerHelloDoneDHE of SessionInfo * log
+    | UpdatesPmsID of SessionInfo * SessionInfo
+    | UpdatesClientID of SessionInfo * SessionInfo
+    | UpdatesServerID of SessionInfo * SessionInfo
+    | ServerLogBeforeClientFinished_NoAuth of SessionInfo * log
+    | ServerLogBeforeClientCertificateDHE_NoAuth of SessionInfo * log
+    | ServerLogBeforeClientFinished_Auth of SessionInfo * log
+    | UpdatesClientSigAlg of SessionInfo * SessionInfo
+    | ServerLogBeforeClientCertificateRSA_NoAuth of SessionInfo * ProtocolVersion * log
+    | ServerLogBeforeClientCertificateDHE_Auth of SessionInfo * log
+    | ServerLogBeforeServerFinishedResume of crand * srand * SessionInfo * log
+    | ServerLogBeforeServerFinished of SessionInfo * log
+    | ServerLogBeforeClientKeyExchangeRSA_Auth of SessionInfo * ProtocolVersion * log
+    | ServerLogBeforeClientKeyExchangeDHE_Auth of SessionInfo * log
+#endif
 
 #if verify
 let popBytes i data =
@@ -267,7 +300,7 @@ let parseClientHello data =
                         | Error(z) -> Error(z)
                         | Correct (res) ->
                         let (cmBytes,extensions) = res in
-                        let cm = parseCompressions cmBytes
+                        let cm = parseCompressions cmBytes in
                         correct(cv,cr,sid,clientCipherSuites,cm,extensions)
                     else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
                 else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
@@ -291,7 +324,7 @@ let clientHelloBytes poptions crand session ext =
 
 let serverHelloBytes sinfo srand ext =
     let verB = versionBytes sinfo.protocol_version in
-    let sidB = vlbytes 1 sinfo.sessionID
+    let sidB = vlbytes 1 sinfo.sessionID in
     let csB = cipherSuiteBytes sinfo.cipher_suite in
     let cmB = compressionBytes sinfo.compression in
     let data = verB @| srand @| sidB @| csB @| cmB @| ext in
@@ -299,28 +332,28 @@ let serverHelloBytes sinfo srand ext =
 
 let parseServerHello data =
     if length data >= 34 then
-        let (serverVerBytes,serverRandomBytes,data) = split2 data 2 32
+        let (serverVerBytes,serverRandomBytes,data) = split2 data 2 32 in
         match parseVersion serverVerBytes with
         | Error z -> Error z
         | Correct(serverVer) ->
-        if length data >= 1 then
-            match vlsplit 1 data with
-            | Error z -> Error z
-            | Correct (res) ->
-            let (sid,data) = res in
-            if length sid <= 32 then
-                if length data >= 3 then
-                    let (csBytes,cmBytes,data) = split2 data 2 1
-                    match parseCipherSuite csBytes with
-                    | Error(z) -> Error(z)
-                    | Correct(cs) ->
-                    match parseCompression cmBytes with
-                    | Error(z) -> Error(z)
-                    | Correct(cm) ->
-                    correct(serverVer,serverRandomBytes,sid,cs,cm,data)
-                else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
+            if length data >= 1 then
+                match vlsplit 1 data with
+                | Error z -> Error z
+                | Correct (res) ->
+                    let (sid,data) = res in
+                    if length sid <= 32 then
+                        if length data >= 3 then
+                            let (csBytes,cmBytes,data) = split2 data 2 1 in
+                            match parseCipherSuite csBytes with
+                            | Error(z) -> Error(z)
+                            | Correct(cs) ->
+                                (match parseCompression cmBytes with
+                                | Error(z) -> Error(z)
+                                | Correct(cm) ->
+                                correct(serverVer,serverRandomBytes,sid,cs,cm,data))
+                        else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
+                    else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
             else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
-        else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
     else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
 
 let helloRequestBytes = messageBytes HT_hello_request empty_bytes
@@ -391,9 +424,7 @@ let parseCertificateRequest version data: Result<(list<certType> * list<Sig.alg>
         | Error(z) -> Error(z)
         | Correct (res) ->
         let (certTypeListBytes,data) = res in
-        match parseCertificateTypeList certTypeListBytes with
-        | Error(z) -> Error(z)
-        | Correct(certTypeList) ->
+        let certTypeList = parseCertificateTypeList certTypeListBytes in
         match parseSigHashAlgVersion version data with
         | Error(z) -> Error(z)
         | Correct (res) ->
@@ -440,12 +471,12 @@ let clientKEXExplicitBytes_DH y =
     let yb = vlbytes 2 y in
     messageBytes HT_client_key_exchange yb
 
-let parseClientKEXExplicit_DH p g data =
+let parseClientKEXExplicit_DH dhp data =
     if length data >= 2 then
         match vlparse 2 data with
         | Error(z) -> Error(z)
         | Correct(y) ->
-            match DHGroup.checkElement p g y with
+            match DHGroup.checkElement dhp y with
             | None -> Error(AD_illegal_parameter, perror __SOURCE_FILE__ __LINE__ "Invalid DH key received")
             | Some(y) -> correct y
     else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
@@ -498,7 +529,7 @@ let parseDigitallySigned expectedAlgs payload pv =
 (* Server Key exchange *)
 
 let dheParamBytes p g y = (vlbytes 2 p) @| (vlbytes 2 g) @| (vlbytes 2 y)
-let parseDHEParams payload =
+let parseDHEParams dhdb minSize payload =
     if length payload >= 2 then
         match vlsplit 2 payload with
         | Error(z) -> Error(z)
@@ -514,13 +545,19 @@ let parseDHEParams payload =
                 | Error(z) -> Error(z)
                 | Correct(res) ->
                 let (y,payload) = res in
-                // Check g and y are valid elements
-                match DHGroup.checkElement p g g with
-                | None -> Error(AD_illegal_parameter, perror __SOURCE_FILE__ __LINE__ "Invalid DH parameter received")
-                | Some(g) ->
-                    match DHGroup.checkElement p g y with
-                    | None -> Error(AD_illegal_parameter, perror __SOURCE_FILE__ __LINE__ "Invalid DH parameter received")
-                    | Some(y) -> correct(p,g,y,payload)
+                // Check params and validate y
+                match DHGroup.checkParams dhdb minSize p g with
+                | Error(z) -> Error(z)
+                | Correct(res) ->
+                    let (dhdb,dhp) = res in
+                    match DHGroup.checkElement dhp y with
+                    | None -> Error(AD_illegal_parameter, perror __SOURCE_FILE__ __LINE__ "Invalid DH key received")
+                    | Some(y) ->
+#if verify
+
+                        let p' = dhp.dhp in
+#endif
+                        correct (dhdb,dhp,y,payload)
             else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
         else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
     else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
@@ -530,29 +567,29 @@ let serverKeyExchangeBytes_DHE dheb alg sign pv =
     let payload = dheb @| sign in
     messageBytes HT_server_key_exchange payload
 
-let parseServerKeyExchange_DHE pv cs payload =
-    match parseDHEParams payload with
+let parseServerKeyExchange_DHE dhdb minSize pv cs payload =
+    match parseDHEParams dhdb minSize payload with
     | Error(z) -> Error(z)
     | Correct(res) ->
-        let (p,g,y,payload) = res
+        let (dhdb,dhp,y,payload) = res in
         let allowedAlgs = default_sigHashAlg pv cs in
-        match parseDigitallySigned allowedAlgs payload pv with
+        (match parseDigitallySigned allowedAlgs payload pv with
         | Error(z) -> Error(z)
         | Correct(res) ->
-            let (alg,signature) = res
-            correct(p,g,y,alg,signature)
+            let (alg,signature) = res in
+            correct(dhdb,dhp,y,alg,signature))
 
 let serverKeyExchangeBytes_DH_anon p g y =
     let dehb = dheParamBytes p g y in
     messageBytes HT_server_key_exchange dehb
 
-let parseServerKeyExchange_DH_anon payload =
-    match parseDHEParams payload with
+let parseServerKeyExchange_DH_anon dhdb minSize payload =
+    match parseDHEParams dhdb minSize payload with
     | Error(z) -> Error(z)
     | Correct(z) ->
-        let (p,g,y,rem) = z in
+        let (dhdb,dhp,y,rem) = z in
         if length rem = 0 then
-            correct(p,g,y)
+            correct(dhdb,dhp,y)
         else
             Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
 
@@ -568,6 +605,7 @@ let makeCertificateVerifyBytes si (ms:PRF.masterSecret) alg skey data =
         let mex = messageBytes HT_certificate_verify payload in
         (mex,tag)
 #if verify
+    | SSL_3p0 -> failwith "To improve"
 #else
     | SSL_3p0 ->
         let (sigAlg,_) = alg in
@@ -586,20 +624,20 @@ let certificateVerifyCheck si ms algs log payload =
     | Correct(res) ->
         let (alg,signature) = res in
         //let (alg,expected) =
-        match si.protocol_version with
+        (match si.protocol_version with
         | TLS_1p2 | TLS_1p1 | TLS_1p0 ->
-            match Cert.get_chain_public_signing_key si.clientID alg with
+            (match Cert.get_chain_public_signing_key si.clientID alg with
             | Error(z) -> (false,alg,empty_bytes)
             | Correct(vkey) ->
                 let res = Sig.verify alg vkey log signature in
-                (res,alg,signature)
+                (res,alg,signature))
         | SSL_3p0 ->
             let (sigAlg,_) = alg in
             let alg = (sigAlg,NULL) in
             let expected = PRF.ssl_certificate_verify si ms sigAlg log in
-            match Cert.get_chain_public_signing_key si.clientID alg with
+            (match Cert.get_chain_public_signing_key si.clientID alg with
             | Error(z) -> (false,alg,empty_bytes)
             | Correct(vkey) ->
                 let res = Sig.verify alg vkey expected signature in
-                (res,alg,signature)
+                (res,alg,signature)))
     | Error(z) -> (false,(SA_RSA,SHA),empty_bytes)

@@ -10,9 +10,12 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module Handshake
 // State machine begins
 open Bytes
+open CoreKeys
 open Error
 open TLSError
 open TLSConstants
@@ -55,11 +58,11 @@ type serverState =  (* note that the CertRequest bits are determined by the conf
    | ServerCheckingCertificateDH  of SessionInfo * log * bytes
    | ClientKeyExchangeDH          of SessionInfo * log
 
-   | ClientCertificateDHE         of SessionInfo * DHGroup.p * DHGroup.g * DHGroup.elt * DH.secret * log
-   | ServerCheckingCertificateDHE of SessionInfo * DHGroup.p * DHGroup.g * DHGroup.elt * DH.secret * log * Cert.chain * bytes
-   | ClientKeyExchangeDHE         of SessionInfo * DHGroup.p * DHGroup.g * DHGroup.elt * DH.secret * log
+   | ClientCertificateDHE         of SessionInfo * dhparams * DHGroup.elt * DH.secret * log
+   | ServerCheckingCertificateDHE of SessionInfo * dhparams * DHGroup.elt * DH.secret * log * Cert.chain * bytes
+   | ClientKeyExchangeDHE         of SessionInfo * dhparams * DHGroup.elt * DH.secret * log
 
-   | ClientKeyExchangeDH_anon     of SessionInfo * DHGroup.p * DHGroup.g * DHGroup.elt * DH.secret * log
+   | ClientKeyExchangeDH_anon     of SessionInfo * dhparams * DHGroup.elt * DH.secret * log
 
    | CertificateVerify            of SessionInfo * PRF.masterSecret * log
    | ClientCCS                    of SessionInfo * PRF.masterSecret * log
@@ -93,11 +96,11 @@ type clientState =
    | ServerCertificateDHE         of SessionInfo * log
    | ClientCheckingCertificateDHE of SessionInfo * log * list<Cert.cert> * option<ProtocolVersion> * bytes
    | ServerKeyExchangeDHE         of SessionInfo * log
-   | CertificateRequestDHE        of SessionInfo * DHGroup.p * DHGroup.g * DHGroup.elt * log
-   | ServerHelloDoneDHE           of SessionInfo * Cert.sign_cert * DHGroup.p * DHGroup.g * DHGroup.elt * log
+   | CertificateRequestDHE        of SessionInfo * dhparams * DHGroup.elt * log
+   | ServerHelloDoneDHE           of SessionInfo * Cert.sign_cert * dhparams * DHGroup.elt * log
 
    | ServerKeyExchangeDH_anon of SessionInfo * log (* Not supported yet *)
-   | ServerHelloDoneDH_anon of SessionInfo * DHGroup.p * DHGroup.g * DHGroup.elt * log
+   | ServerHelloDoneDH_anon of SessionInfo * dhparams * DHGroup.elt * log
 
    | ClientWritingCCS       of SessionInfo * PRF.masterSecret * log
    | ServerCCS              of SessionInfo * PRF.masterSecret * epoch * StatefulLHAE.reader * cVerifyData * log
@@ -123,7 +126,9 @@ type hs_state = {
   hs_incoming    : bytes;                  (* partial incoming HS message *)
   (* local configuration *)
   poptions: config;
+  (* Session and DH DBs *)
   sDB: SessionDB.t;
+  dhdb: DHDB.dhdb;
   (* current handshake & session we are establishing *)
   pstate: protoState;
 }
@@ -140,24 +145,28 @@ let init (role:Role) poptions =
     | Client ->
         let ci = initConnection role rand in
         Pi.assume (Configure(Client,ci.id_in,poptions)); // ``The user starts a client in this config''
-        let extL = prepareClientExtensions poptions ci empty_bytes None in
+        let extL = prepareClientExtensions poptions ci empty_bytes in
         let ext = clientExtensionsBytes extL in
         let cHelloBytes = clientHelloBytes poptions rand sid ext in
         let sdb = SessionDB.create poptions in
+        let dhdb = DHDB.create poptions.dhDBFileName in
         (ci,{hs_outgoing = cHelloBytes;
                      hs_incoming = empty_bytes;
                      poptions = poptions;
                      sDB = sdb;
+                     dhdb = dhdb;
                      pstate = PSClient (ServerHello (rand, sid, extL, empty_bytes, empty_bytes, cHelloBytes))
             })
     | Server ->
         let ci = initConnection role rand in
         Pi.assume (Configure(Server,ci.id_in,poptions)); // ``The user starts a server in this config''
         let sdb = SessionDB.create poptions in
-        (ci,{hs_outgoing = empty_bytes
-             hs_incoming = empty_bytes
-             poptions = poptions
-             sDB = sdb
+        let dhdb = DHDB.create poptions.dhDBFileName in
+        (ci,{hs_outgoing = empty_bytes;
+             hs_incoming = empty_bytes;
+             poptions = poptions;
+             sDB = sdb;
+             dhdb = dhdb;
              pstate = PSServer (ClientHello(empty_bytes,empty_bytes))
             })
 
@@ -174,42 +183,51 @@ let resume next_sid poptions =
     match retrievedSinfo.sessionID with
     | xx when length xx = 0 -> unexpected "[resume] a resumed session should always have a valid sessionID"
     | sid ->
-    let rand = Nonce.mkHelloRandom () in
-    let ci = initConnection Client rand in
-    Pi.assume (Configure(Client,ci.id_in,poptions)); // ``The user resumes a client in this config''
-    let extL = prepareClientExtensions poptions ci empty_bytes (Some(retrievedSinfo.session_hash))
-    let ext = clientExtensionsBytes extL
-    let cHelloBytes = clientHelloBytes poptions rand sid ext in
-    let sdb = SessionDB.create poptions
-    (ci,{hs_outgoing = cHelloBytes
-         hs_incoming = empty_bytes
-         poptions = poptions
-         sDB = sdb
-         pstate = PSClient (ServerHello (rand, sid, extL, empty_bytes, empty_bytes, cHelloBytes))
-        })
+    if hasExtendedMS retrievedSinfo.extensions then
+        // we try to resume
+        let rand = Nonce.mkHelloRandom () in
+        let ci = initConnection Client rand in
+        Pi.assume (Configure(Client,ci.id_in,poptions)); // ``The user resumes a client in this config''
+        let extL = prepareClientExtensions poptions ci empty_bytes in
+        let ext = clientExtensionsBytes extL in
+        let cHelloBytes = clientHelloBytes poptions rand sid ext in
+        let sdb = SessionDB.create poptions in
+        let dhdb = DHDB.create poptions.dhDBFileName in
+        (ci,{hs_outgoing = cHelloBytes;
+             hs_incoming = empty_bytes;
+             poptions = poptions;
+             sDB = sdb;
+             dhdb = dhdb;
+             pstate = PSClient (ServerHello (rand, sid, extL, empty_bytes, empty_bytes, cHelloBytes))
+            })
+    else
+        // The session we're trying to resume doesn't support extended master secret, hence we don't resume it
+        init Client poptions
 
 let rehandshake (ci:ConnectionInfo) (state:hs_state) (ops:config) =
     (* Start a non-resuming handshake, over an existing epoch.
        Only client side, since a server can only issue a HelloRequest *)
     match state.pstate with
     | PSClient (cstate) ->
-        match cstate with
+        (match cstate with
         | ClientIdle(cvd,svd) ->
-            let rand = Nonce.mkHelloRandom () in
+            (let rand = Nonce.mkHelloRandom () in
             let sid = empty_bytes in
-            let extL = prepareClientExtensions ops ci cvd None in
+            let extL = prepareClientExtensions ops ci cvd in
             let ext = clientExtensionsBytes extL in
             let cHelloBytes = clientHelloBytes ops rand sid ext in
             Pi.assume (Configure(Client,ci.id_in,ops)); // ``The user renegotiates a client in this config''
-            let sdb = SessionDB.create ops
-            (true,{hs_outgoing = cHelloBytes
-                   hs_incoming = empty_bytes
-                   poptions = ops
-                   sDB = sdb
+            let sdb = SessionDB.create ops in
+            let dhdb = DHDB.create ops.dhDBFileName in
+            (true,{hs_outgoing = cHelloBytes;
+                   hs_incoming = empty_bytes;
+                   poptions = ops;
+                   sDB = sdb;
+                   dhdb = dhdb;
                    pstate = PSClient (ServerHello (rand, sid, extL, cvd,svd, cHelloBytes))
-                   })
+                   }))
         | _ -> (* handshake already happening, ignore this request *)
-            (false,state)
+            (false,state))
     | PSServer (_) -> unexpected "[rehandshake] should only be invoked on client side connections."
 
 let rekey (ci:ConnectionInfo) (state:hs_state) (ops:config) : bool * hs_state =
@@ -228,47 +246,55 @@ let rekey (ci:ConnectionInfo) (state:hs_state) (ops:config) : bool * hs_state =
     | sid ->
         let sDB = SessionDB.create ops in
         (* Ensure the sid is in the SessionDB *)
-        match SessionDB.select sDB sid Client ops.server_name with
+        (match SessionDB.select sDB sid Client ops.server_name with
         | None -> (* Maybe session expired, or was never stored. Let's not resume *)
             rehandshake ci state ops
         | Some s ->
-            let (retrievedSinfo,retrievedMS) = s
-            match state.pstate with
-            | PSClient (cstate) ->
-                match cstate with
-                | ClientIdle(cvd,svd) ->
-                    let rand = Nonce.mkHelloRandom () in
-                    let extL = prepareClientExtensions ops ci cvd (Some(retrievedSinfo.session_hash))
-                    let ext = clientExtensionsBytes extL in
-                    Pi.assume (Configure(Client,ci.id_in,ops)); // ``The user rekeys a client in this config''
-                    let cHelloBytes = clientHelloBytes ops rand sid ext in
-                    (true,{hs_outgoing = cHelloBytes
-                           hs_incoming = empty_bytes
-                           poptions = ops
-                           sDB = sDB
-                           pstate = PSClient (ServerHello (rand, sid, extL, cvd, svd, cHelloBytes))
-                           })
-                | _ -> (* Handshake already ongoing, ignore this request *)
-                    (false,state)
-            | PSServer (_) -> unexpected "[rekey] should only be invoked on client side connections."
+            let (retrievedSinfo,retrievedMS) = s in
+            if hasExtendedMS retrievedSinfo.extensions then
+                match state.pstate with
+                | PSClient (cstate) ->
+                    (match cstate with
+                    | ClientIdle(cvd,svd) ->
+                        (let rand = Nonce.mkHelloRandom () in
+                        let extL = prepareClientExtensions ops ci cvd in
+                        let ext = clientExtensionsBytes extL in
+                        Pi.assume (Configure(Client,ci.id_in,ops)); // ``The user rekeys a client in this config''
+                        let cHelloBytes = clientHelloBytes ops rand sid ext in
+                        let dhdb = DHDB.create ops.dhDBFileName in
+                        (true,{hs_outgoing = cHelloBytes;
+                               hs_incoming = empty_bytes;
+                               poptions = ops;
+                               sDB = sDB;
+                               dhdb = dhdb;
+                               pstate = PSClient (ServerHello (rand, sid, extL, cvd, svd, cHelloBytes))
+                               }))
+                    | _ -> (* Handshake already ongoing, ignore this request *)
+                        (false,state))
+                | PSServer (_) -> unexpected "[rekey] should only be invoked on client side connections."
+            else
+                // Don't resume a non extended-master-secret session
+                rehandshake ci state ops)
 #endif
 
 let request (ci:ConnectionInfo) (state:hs_state) (ops:config) =
     match state.pstate with
     | PSClient _ -> unexpected "[request] should only be invoked on server side connections."
     | PSServer (sstate) ->
-        match sstate with
+        (match sstate with
         | ServerIdle(cvd,svd) ->
-            let sdb = SessionDB.create ops
+            let sdb = SessionDB.create ops in
+            let dhdb = DHDB.create ops.dhDBFileName in
             (* Put HelloRequest in outgoing buffer (and do not log it), and move to the ClientHello state (so that we don't send HelloRequest again) *)
-            (true, { hs_outgoing = helloRequestBytes
-                     hs_incoming = empty_bytes
-                     poptions = ops
-                     sDB = sdb
+            (true, { hs_outgoing = helloRequestBytes;
+                     hs_incoming = empty_bytes;
+                     poptions = ops;
+                     sDB = sdb;
+                     dhdb = dhdb;
                      pstate = PSServer(ClientHello(cvd,svd))
                     })
         | _ -> (* Handshake already ongoing, ignore this request *)
-            (false,state)
+            (false,state))
 
 let getPrincipal ci state =
   match ci.role with
@@ -276,15 +302,15 @@ let getPrincipal ci state =
     | Server -> state.poptions.client_name
 
 let invalidateSession ci state =
-  let i = isInitEpoch(ci.id_in) in
+    let i = isInitEpoch(ci.id_in) in
     if i = true then
         state
     else
-        let si = epochSI(ci.id_in)
+        let si = epochSI(ci.id_in) in
         match si.sessionID with
         | xx when length xx = 0 -> state
         | sid ->
-            let hint = getPrincipal ci state
+            let hint = getPrincipal ci state in
             let sdb = SessionDB.remove state.sDB sid ci.role hint in
             {state with sDB=sdb}
 
@@ -307,11 +333,11 @@ let check_negotiation (r:Role) (si:SessionInfo) (c:config) =
 let next_fragment ci state =
     match state.hs_outgoing with
     | xx when length xx = 0 ->
-        match state.pstate with
+        (match state.pstate with
         | PSClient(cstate) ->
-            match cstate with
+            (match cstate with
             | ClientWritingCCS (si,ms,log) ->
-                let cr' = si.init_crand in
+                (let cr' = si.init_crand in
                 let sr' = si.init_srand in
                 Pi.assume (SentCCS(Client,cr',sr',si)); // ``We send client CCS for si''
                 let next_ci = getNextEpochs ci si cr' sr' in
@@ -326,11 +352,11 @@ let next_fragment ci state =
                 let (rg,f,_) = makeFragment ki_out CCSBytes in
                 let ci = {ci with id_out = next_ci.id_out} in
                 OutCCS(rg,f,ci,writer,
-                       {state with hs_outgoing = cFinished
-                                   pstate = PSClient(ServerCCS(si,ms,next_ci.id_in,reader,cvd,log))})
+                       {state with hs_outgoing = cFinished;
+                                   pstate = PSClient(ServerCCS(si,ms,next_ci.id_in,reader,cvd,log))}))
 
             | ClientWritingCCSResume(e,w,ms,svd,log) ->
-                let cr' = epochCRand(e) in
+                (let cr' = epochCRand(e) in
                 let sr' = epochSRand(e) in
                 let si' = epochSI(e) in
                 Pi.assume (SentCCS(Client,cr',sr',si')); // ``We send client CCS for the resumption''
@@ -343,13 +369,13 @@ let next_fragment ci state =
                 Pi.expect (Complete(ci));
 #endif
                 OutCCS(rg,f,ci,w,
-                       {state with hs_outgoing = cFinished
-                                   pstate = PSClient(ClientWritingFinishedResume(cvd,svd))})
-            | _ -> OutIdle(state)
+                       {state with hs_outgoing = cFinished;
+                                   pstate = PSClient(ClientWritingFinishedResume(cvd,svd))}))
+            | _ -> OutIdle(state))
         | PSServer(sstate) ->
-            match sstate with
+            (match sstate with
             | ServerWritingCCS (si,ms,e,w,cvd,log) ->
-                Pi.assume (SentCCS(Server,si.init_crand,si.init_srand,si)); // ``We send server CCS for si''
+                (Pi.assume (SentCCS(Server,si.init_crand,si.init_srand,si)); // ``We send server CCS for si''
                 let svd = PRF.makeVerifyData si ms Server log in
                 let sFinished = messageBytes HT_finished svd in
                 let ki_out = ci.id_out in
@@ -359,10 +385,10 @@ let next_fragment ci state =
                 Pi.expect(Complete(ci));
 #endif
                 OutCCS(rg,f,ci,w,
-                       {state with hs_outgoing = sFinished
-                                   pstate = PSServer(ServerWritingFinished(si,ms,e,cvd,svd))})
+                       {state with hs_outgoing = sFinished;
+                                   pstate = PSServer(ServerWritingFinished(si,ms,e,cvd,svd))}))
             | ServerWritingCCSResume(we,w,re,r,ms,log) ->
-                let si' = epochSI(we) in
+                (let si' = epochSI(we) in
                 let cr' = epochCRand(we) in
                 let sr' = epochSRand(we) in
                 Pi.assume (SentCCS(Server,cr',sr',si')); // ``We send server CCS for the resumption''
@@ -373,62 +399,65 @@ let next_fragment ci state =
                 let (rg,f,_) = makeFragment ki_out CCSBytes in
                 let ci = {ci with id_out = we} in
                 OutCCS(rg,f,ci,w,
-                       {state with hs_outgoing = sFinished
-                                   pstate = PSServer(ClientCCSResume(re,r,svd,ms,log))})
+                       {state with hs_outgoing = sFinished;
+                                   pstate = PSServer(ClientCCSResume(re,r,svd,ms,log))}))
 
-            | _ -> OutIdle(state)
+            | _ -> OutIdle(state)))
     | outBuf ->
         let ki_out = ci.id_out in
         let (rg,f,remBuf) = makeFragment ki_out outBuf in
-        match remBuf with
+        (match remBuf with
         | xx when length xx = 0 ->
-            match state.pstate with
+            (match state.pstate with
             | PSClient(cstate) ->
-                match cstate with
+                (match cstate with
                 | ServerCCS (_,_,_,_,_,_) ->
+                    (
 #if verify
                     Pi.assume(EvSentFinishedFirst(ci,true));
 #endif
-                    OutFinished(rg,f,{state with hs_outgoing = remBuf})
+                    OutFinished(rg,f,{state with hs_outgoing = remBuf}))
                 | ClientWritingFinishedResume(cvd,svd) ->
-                    let si = epochSI ki_out in
+                    (let si = epochSI ki_out in
                     let op = state.poptions in
                     check_negotiation Client si op;
 #if verify
                     Pi.assume(EvSentFinishedFirst(ci,false));
 #endif
                     OutComplete(rg,f,
-                                {state with hs_outgoing = remBuf
-                                            pstate = PSClient(ClientIdle(cvd,svd))})
+                                {state with hs_outgoing = remBuf;
+                                            pstate = PSClient(ClientIdle(cvd,svd))}))
 
-                | _ -> OutSome(rg,f,{state with hs_outgoing = remBuf})
+                | _ -> OutSome(rg,f,{state with hs_outgoing = remBuf}))
             | PSServer(sstate) ->
-                match sstate with
+                (match sstate with
                 | ServerWritingFinished(si,ms,e,cvd,svd) ->
+                    (
 #if verify
                     Pi.assume(EvSentFinishedFirst(ci,false));
 #endif
                     if length si.sessionID = 0 then
-                      check_negotiation Server si state.poptions;
+                      (check_negotiation Server si state.poptions;
                       OutComplete(rg,f,
-                                  {state with hs_outgoing = remBuf
-                                              pstate = PSServer(ServerIdle(cvd,svd))})
+                                  {state with hs_outgoing = remBuf;
+                                              pstate = PSServer(ServerIdle(cvd,svd))}))
 
                     else
-                      let sdb = SessionDB.insert state.sDB si.sessionID Server state.poptions.client_name (si,ms)
+                      (let sdb = SessionDB.insert state.sDB si.sessionID Server state.poptions.client_name (si,ms) in
                       check_negotiation Server si state.poptions;
                       OutComplete(rg,f,
-                                  {state with hs_outgoing = remBuf
-                                              pstate = PSServer(ServerIdle(cvd,svd))
-                                              sDB = sdb})
+                                  {state with hs_outgoing = remBuf;
+                                              pstate = PSServer(ServerIdle(cvd,svd));
+                                              sDB = sdb})))
 
                 | ClientCCSResume(_,_,_,_,_) ->
+                    (
 #if verify
                     Pi.assume(EvSentFinishedFirst(ci,true));
 #endif
-                    OutFinished(rg,f,{state with hs_outgoing = remBuf})
-                | _ -> OutSome(rg,f,{state with hs_outgoing = remBuf})
-        | _ -> OutSome(rg,f,{state with hs_outgoing = remBuf})
+                    OutFinished(rg,f,{state with hs_outgoing = remBuf}))
+                | _ -> OutSome(rg,f,{state with hs_outgoing = remBuf})))
+        | _ -> OutSome(rg,f,{state with hs_outgoing = remBuf}))
 
 type incoming = (* the fragment is accepted, and... *)
   | InAck of hs_state
@@ -449,7 +478,7 @@ let find_client_cert_sign certType certAlg (distName:list<string>) pv hint =
         let keyAlg = sigHashAlg_bySigList certAlg (cert_type_list_to_SigAlg certType) in
         Cert.for_signing certAlg hint keyAlg
     | TLS_1p1 | TLS_1p0 | SSL_3p0 ->
-        let certAlg = cert_type_list_to_SigHashAlg certType pv
+        let certAlg = cert_type_list_to_SigHashAlg certType pv in
         let keyAlg = sigHashAlg_bySigList certAlg (cert_type_list_to_SigAlg certType) in
         Cert.for_signing certAlg hint keyAlg
 
@@ -498,27 +527,27 @@ let parseClientKEX_RSA si skey cv config data =
     else
         match Cert.get_chain_public_encryption_key si.serverID with
         | Correct(pk) ->
-            match parseClientKeyExchange_RSA si data with
+            (match parseClientKeyExchange_RSA si data with
             | Correct(encPMS) ->
 
                 let res = RSA.decrypt skey si cv config.check_client_version_in_pms_for_old_tls encPMS in
                 correct(pk,(*RSAPMS(pk,cv,encPMS),*)res)
-            | Error(z) -> Error(z)
+            | Error(z) -> Error(z))
         | Error(x) -> Error(x)
 
 let prepare_client_output_full_RSA (ci:ConnectionInfo) (state:hs_state) (si:SessionInfo) (cert_req:Cert.sign_cert) (log:log) : Result<(hs_state * SessionInfo * PRF.masterSecret * log)> =
     match cert_req with
     | _ when si.client_auth = false ->
-         let si = {si with clientID = []}
+         let si = {si with clientID = []} in
          let cfg = state.poptions in
-         match clientKEXBytes_RSA si cfg with
+         (match clientKEXBytes_RSA si cfg with
          | Error(z) -> Error(z)
          | Correct(v) ->
            let (pk,clientKEXBytes,rsapms)  = v in
            let cv = cfg.maxVer in
 
-           let pms = PMS.RSAPMS(pk,cv,rsapms)
-           let pmsid = pmsId pms
+           let pms = PMS.RSAPMS(pk,cv,rsapms) in
+           let pmsid = pmsId pms in
            let log = log @| clientKEXBytes in
            (* Enqueue current messages in output buffer *)
            let to_send = clientKEXBytes in
@@ -528,21 +557,21 @@ let prepare_client_output_full_RSA (ci:ConnectionInfo) (state:hs_state) (si:Sess
 #if verify
            Pi.expect (ClientLogBeforeClientFinishedRSA_NoAuth(si,log));
 #endif
-           correct ({state with hs_outgoing = new_outgoing},si,ms,log)
+           correct ({state with hs_outgoing = new_outgoing},si,ms,log))
     | None when si.client_auth = true ->
          let clientCertBytes = clientCertificateBytes cert_req in
          let si_old = si in
-         let si = {si with clientID = []}
+         let si = {si with clientID = []} in
          let log = log @| clientCertBytes in
          let cfg = state.poptions in
-         match clientKEXBytes_RSA si cfg with
+         (match clientKEXBytes_RSA si cfg with
          | Error(z) -> Error(z)
          | Correct(v) ->
            let (pk,clientKEXBytes,rsapms)  = v in
            let cv = cfg.maxVer in
 
-           let pms = PMS.RSAPMS(pk,cv,rsapms)
-           let pmsid = pmsId pms
+           let pms = PMS.RSAPMS(pk,cv,rsapms) in
+           let pmsid = pmsId pms in
            let si = {si with pmsId = pmsid} in
            let log = log @| clientKEXBytes in
            (* Enqueue current messages in output buffer *)
@@ -553,7 +582,7 @@ let prepare_client_output_full_RSA (ci:ConnectionInfo) (state:hs_state) (si:Sess
            Pi.expect (UpdatesPmsClientID(si_old,si));
            Pi.expect (ClientLogBeforeClientFinishedRSA_TryNoAuth(si,log));
 #endif
-           correct ({state with hs_outgoing = new_outgoing},si,ms,log)
+           correct ({state with hs_outgoing = new_outgoing},si,ms,log))
     | Some x when si.client_auth = true ->
          let si_old = si in
          let (certList,algs,skey) = x in
@@ -562,14 +591,14 @@ let prepare_client_output_full_RSA (ci:ConnectionInfo) (state:hs_state) (si:Sess
          let si = {si with clientSigAlg = algs} in
          let log = log @| clientCertBytes in
          let cfg = state.poptions in
-         match clientKEXBytes_RSA si cfg with
+         (match clientKEXBytes_RSA si cfg with
          | Error(z) -> Error(z)
          | Correct(v) ->
            let (pk,clientKEXBytes,rsapms)  = v in
            let cv = cfg.maxVer in
 
-           let pms = PMS.RSAPMS(pk,cv,rsapms)
-           let pmsid = pmsId pms
+           let pms = PMS.RSAPMS(pk,cv,rsapms) in
+           let pmsid = pmsId pms in
            let si = {si with pmsId = pmsid} in
            let log = log @| clientKEXBytes in
            let (si,ms) = extract si pms log in
@@ -590,7 +619,7 @@ let prepare_client_output_full_RSA (ci:ConnectionInfo) (state:hs_state) (si:Sess
            Pi.expect (UpdatesPmsClientID(si_old,si));
            Pi.expect (ClientLogBeforeClientFinishedRSA_Auth(si,log));
 #endif
-           correct ({state with hs_outgoing = new_outgoing},si,ms,log)
+           correct ({state with hs_outgoing = new_outgoing},si,ms,log))
     | _ -> Error.unexpected "[prepare_client_output_full_RSA] unreachable pattern match"
 
 (*
@@ -623,36 +652,36 @@ let certificateVerifyBytesAuth (si:SessionInfo) (ms:PRF.masterSecret) (cert_req:
 *)
 
 let prepare_client_output_full_DHE (ci:ConnectionInfo) (state:hs_state) (si:SessionInfo)
-  (cert_req:Cert.sign_cert) (p:DHGroup.p) (g:DHGroup.g) (sy:DHGroup.elt) (log:log) : Result<(hs_state * SessionInfo * PRF.masterSecret * log)> =
-    (* pre: Honest(verifyKey(si.server_id)) /\ StrongHS(si) -> DHGroup.PP((p,g)) /\ ServerDHE((p,g),sy,si.init_crand @| si.init_srand) *)
-    (* moreover, by definition ServerDHE((p,g),sy,si.init_crand @| si.init_srand) implies ?sx.DHE.Exp((p,g),sx,sy) *)
+  (cert_req:Cert.sign_cert) (dhp:dhparams) (sy:DHGroup.elt) (log:log) : Result<(hs_state * SessionInfo * PRF.masterSecret * log)> =
+    (* pre: Honest(verifyKey(si.server_id)) /\ StrongHS(si) -> DHGroup.PP(dhp) /\ ServerDHE(dhp,sy,si.init_crand @| si.init_srand) *)
+    (* moreover, by definition ServerDHE(dhp,sy,si.init_crand @| si.init_srand) implies ?sx.DHE.Exp(dhp,sx,sy) *)
 
     match cert_req with
     | Some x when si.client_auth = true ->
          let si_old = si in
          let (certList,algs,skey) = x in
          let clientCertBytes = clientCertificateBytes cert_req in
-         let si = {si with clientID = certList}
-         let si = {si with clientSigAlg = algs}
+         let si = {si with clientID = certList} in
+         let si = {si with clientSigAlg = algs} in
          let log = log @| clientCertBytes in
          let cfg = state.poptions in
 
-         (* this implements ms-KEM(DH).enc with pk = (p,g,sy) and (pv,h,l) from si *)
+         (* this implements ms-KEM(DH).enc with pk = (dhp,sy) and (pv,h,l) from si *)
 
-         let (cy,y,dhpms) = DH.clientGenExp p g sy in
-         (* post: DHE.Exp((p,g),x,cy) *)
+         let (cy,dhpms) = DH.clientGenExp dhp sy in
+         (* post: DHE.Exp(dhp,x,cy) *)
 
          let clientKEXBytes = clientKEXExplicitBytes_DH cy in
          let log = log @| clientKEXBytes in
 
-         let pms = PMS.DHPMS(p,g,sy,cy,dhpms) in
-         let pmsid = pmsId pms
+         let pms = PMS.DHPMS(dhp.dhp,dhp.dhg,sy,cy,dhpms) in
+         let pmsid = pmsId pms in
          let si = {si with pmsId = pmsid} in
          let (si,ms) = extract si pms log in
 
-         (* the post of this call is !sx,cy. PP((p,g) /\ DHE.Exp((p,g),cx,cy)) /\ DHE.Exp((p,g),sx,sy) -> DH.HonestExponential((p,g),cy,sy) *)
-         (* thus we have Honest(verifyKey(si.server_id)) /\ StrongHS(si) -> DH.HonestExponential((p,g),cy,sy) *)
-         (* the post of this call is !p,g,gx,gy. StrongHS(si) /\ DH.HonestExponential((p,g),gx,gy) -> PRFs.Secret(ms) *)
+         (* the post of this call is !sx,cy. PP(dhp) /\ DHE.Exp(dhp,cx,cy)) /\ DHE.Exp(dhp,sx,sy) -> DH.HonestExponential(dhp,cy,sy) *)
+         (* thus we have Honest(verifyKey(si.server_id)) /\ StrongHS(si) -> DH.HonestExponential(dhp,cy,sy) *)
+         (* the post of this call is !dhp,gx,gy. StrongHS(si) /\ DH.HonestExponential(dhp,gx,gy) -> PRFs.Secret(ms) *)
          (* thus we have Honest(verifyKey(si.server_id)) /\ StrongHS(si) -> PRFs.Secret(ms) *)
          (* si is now constant *)
 
@@ -676,26 +705,26 @@ let prepare_client_output_full_DHE (ci:ConnectionInfo) (state:hs_state) (si:Sess
     | None when si.client_auth = true ->
          let si_old = si in
          let clientCertBytes = clientCertificateBytes cert_req in
-         let si = {si with clientID = []}
+         let si = {si with clientID = []} in
          let log = log @| clientCertBytes in
          let cfg = state.poptions in
 
-         (* this implements ms-KEM(DH).enc with pk = (p,g,sy) and (pv,h,l) from si *)
+         (* this implements ms-KEM(DH).enc with pk = (dhp,sy) and (pv,h,l) from si *)
 
-         let (cy,y,dhpms) = DH.clientGenExp p g sy in
-         (* post: DHE.Exp((p,g),x,cy) *)
+         let (cy,dhpms) = DH.clientGenExp dhp sy in
+         (* post: DHE.Exp(dhp,x,cy) *)
 
          let clientKEXBytes = clientKEXExplicitBytes_DH cy in
          let log = log @| clientKEXBytes in
 
-         let pms = PMS.DHPMS(p,g,sy,cy,dhpms) in
-         let pmsid = pmsId pms
+         let pms = PMS.DHPMS(dhp.dhp,dhp.dhg,sy,cy,dhpms) in
+         let pmsid = pmsId pms in
          let si = {si with pmsId = pmsid} in
          let (si,ms) = extract si pms log in
 
-         (* the post of this call is !sx,cy. PP((p,g) /\ DHE.Exp((p,g),cx,cy)) /\ DHE.Exp((p,g),sx,sy) -> DH.HonestExponential((p,g),cy,sy) *)
-         (* thus we have Honest(verifyKey(si.server_id)) /\ StrongHS(si) -> DH.HonestExponential((p,g),cy,sy) *)
-         (* the post of this call is !p,g,gx,gy. StrongHS(si) /\ DH.HonestExponential((p,g),gx,gy) -> PRFs.Secret(ms) *)
+         (* the post of this call is !sx,cy. PP(dhp) /\ DHE.Exp(dhp,cx,cy)) /\ DHE.Exp(dhp,sx,sy) -> DH.HonestExponential(dhp,cy,sy) *)
+         (* thus we have Honest(verifyKey(si.server_id)) /\ StrongHS(si) -> DH.HonestExponential(dhp,cy,sy) *)
+         (* the post of this call is !dhp,gx,gy. StrongHS(si) /\ DH.HonestExponential(dhp,gx,gy) -> PRFs.Secret(ms) *)
          (* thus we have Honest(verifyKey(si.server_id)) /\ StrongHS(si) -> PRFs.Secret(ms) *)
          (* si is now constant *)
 
@@ -708,25 +737,25 @@ let prepare_client_output_full_DHE (ci:ConnectionInfo) (state:hs_state) (si:Sess
          correct ({state with hs_outgoing = new_outgoing},si,ms,log)
     | _ when si.client_auth = false ->
          let si_old = si in
-         let si = {si with clientID = []}
+         let si = {si with clientID = []} in
          let cfg = state.poptions in
 
-         (* this implements ms-KEM(DH).enc with pk = (p,g,sy) and (pv,h,l) from si *)
+         (* this implements ms-KEM(DH).enc with pk = (dhp,sy) and (pv,h,l) from si *)
 
-         let (cy,y,dhpms) = DH.clientGenExp p g sy in
-         (* post: DHE.Exp((p,g),x,cy) *)
+         let (cy,dhpms) = DH.clientGenExp dhp sy in
+         (* post: DHE.Exp(dhp,x,cy) *)
 
          let clientKEXBytes = clientKEXExplicitBytes_DH cy in
          let log = log @| clientKEXBytes in
 
-         let pms = PMS.DHPMS(p,g,sy,cy,dhpms) in
-         let pmsid = pmsId pms
+         let pms = PMS.DHPMS(dhp.dhp,dhp.dhg,sy,cy,dhpms) in
+         let pmsid = pmsId pms in
          let si = {si with pmsId = pmsid} in
          let (si,ms) = extract si pms log in
 
-         (* the post of this call is !sx,cy. PP((p,g) /\ DHE.Exp((p,g),cx,cy)) /\ DHE.Exp((p,g),sx,sy) -> DH.HonestExponential((p,g),cy,sy) *)
-         (* thus we have Honest(verifyKey(si.server_id)) /\ StrongHS(si) -> DH.HonestExponential((p,g),cy,sy) *)
-         (* the post of this call is !p,g,gx,gy. StrongHS(si) /\ DH.HonestExponential((p,g),gx,gy) -> PRFs.Secret(ms) *)
+         (* the post of this call is !sx,cy. PP(dhp) /\ DHE.Exp(dhp,cx,cy)) /\ DHE.Exp(dhp,sx,sy) -> DH.HonestExponential(dhp,cy,sy) *)
+         (* thus we have Honest(verifyKey(si.server_id)) /\ StrongHS(si) -> DH.HonestExponential(dhp,cy,sy) *)
+         (* the post of this call is !dhp,gx,gy. StrongHS(si) /\ DH.HonestExponential(dhp,gx,gy) -> PRFs.Secret(ms) *)
          (* thus we have Honest(verifyKey(si.server_id)) /\ StrongHS(si) -> PRFs.Secret(ms) *)
          (* si is now constant *)
 
@@ -741,30 +770,30 @@ let prepare_client_output_full_DHE (ci:ConnectionInfo) (state:hs_state) (si:Sess
 
 let on_serverHello_full (ci:ConnectionInfo) crand log to_log (shello:ProtocolVersion * srand * sessionID * cipherSuite * Compression * bytes) extL =
     let log = log @| to_log in
-    let (sh_server_version,sh_random,sh_session_id,sh_cipher_suite,sh_compression_method,sh_neg_extensions) = shello
-    let si = { clientID = []
-               clientSigAlg = (SA_RSA,SHA)
-               serverSigAlg = (SA_RSA,SHA)
-               client_auth = false
-               serverID = []
-               sessionID = sh_session_id
-               protocol_version = sh_server_version
-               cipher_suite = sh_cipher_suite
-               compression = sh_compression_method
-               extensions = extL
-               init_crand = crand
-               init_srand = sh_random
-               session_hash = empty_bytes
+    let (sh_server_version,sh_random,sh_session_id,sh_cipher_suite,sh_compression_method,sh_neg_extensions) = shello in
+    let si = { clientID = [];
+               clientSigAlg = (SA_RSA,SHA);
+               serverSigAlg = (SA_RSA,SHA);
+               client_auth = false;
+               serverID = [];
+               sessionID = sh_session_id;
+               protocol_version = sh_server_version;
+               cipher_suite = sh_cipher_suite;
+               compression = sh_compression_method;
+               extensions = extL;
+               init_crand = crand;
+               init_srand = sh_random;
+               session_hash = empty_bytes;
                pmsId = noPmsId
                } in
     (* If DH_ANON, go into the ServerKeyExchange state, else go to the Certificate state *)
     if isAnonCipherSuite sh_cipher_suite then
         PSClient(ServerKeyExchangeDH_anon(si,log))
-    elif isDHCipherSuite sh_cipher_suite then
+    else if isDHCipherSuite sh_cipher_suite then
         PSClient(ServerCertificateDH(si,log))
-    elif isDHECipherSuite sh_cipher_suite then
+    else if isDHECipherSuite sh_cipher_suite then
         PSClient(ServerCertificateDHE(si,log))
-    elif isRSACipherSuite sh_cipher_suite then
+    else if isRSACipherSuite sh_cipher_suite then
         PSClient(ServerCertificateRSA(si,log))
     else
         unexpected "[on_serverHello_full] Unknown ciphersuite"
@@ -786,37 +815,37 @@ let rec recv_fragment_client (ci:ConnectionInfo) (state:hs_state) (agreedVersion
     match parseMessageState ci state with
     | Error z -> let (x,y) = z in InError(x,y,state)
     | Correct(res) ->
-      match res with
+      (match res with
       | None ->
-          match agreedVersion with
+          (match agreedVersion with
           | None      -> InAck(state)
-          | Some (pv) -> InVersionAgreed(state,pv)
+          | Some (pv) -> InVersionAgreed(state,pv))
       | Some (res) ->
       let (state,hstype,payload,to_log) = res in
-      match state.pstate with
+      (match state.pstate with
       | PSClient(cState) ->
-        match hstype with
+        (match hstype with
         | HT_hello_request ->
-            match cState with
+            (match cState with
             | ClientIdle(_,_) ->
                 (* This is a legitimate hello request.
                    Handle it, but according to the spec do not log this message *)
-                match state.poptions.honourHelloReq with
+                (match state.poptions.honourHelloReq with
                 | HRPIgnore -> recv_fragment_client ci state agreedVersion
-                | HRPResume -> let (_,state) = rekey ci state state.poptions in InAck(state)       (* Terminating case, we're not idle anymore *)
-                | HRPFull   -> let (_,state) = rehandshake ci state state.poptions in InAck(state) (* Terminating case, we're not idle anymore *)
+                | HRPResume -> let (_,state) = rekey ci state state.poptions in InAck(state)        (* Terminating case, we're not idle anymore *)
+                | HRPFull   -> let (_,state) = rehandshake ci state state.poptions in InAck(state)) (* Terminating case, we're not idle anymore *)
             | _ ->
                 (* RFC 7.4.1.1: ignore this message *)
-                recv_fragment_client ci state agreedVersion
+                recv_fragment_client ci state agreedVersion)
 
         | HT_server_hello ->
-            match cState with
+            (match cState with
             | ServerHello (crand,sid,cExtL,cvd,svd,log) ->
-                match parseServerHello payload with
+                (match parseServerHello payload with
                 | Error z -> let (x,y) = z in InError(x,y,state)
                 | Correct (shello) ->
-                  let (sh_server_version,sh_random,sh_session_id,sh_cipher_suite,sh_compression_method,sh_neg_extensions) = shello
-                  let pop = state.poptions
+                  let (sh_server_version,sh_random,sh_session_id,sh_cipher_suite,sh_compression_method,sh_neg_extensions) = shello in
+                  let pop = state.poptions in
                   // Sanity checks on the received message; they are security relevant.
                   // Check that the server agreed version is between maxVer and minVer.
                   if  (geqPV sh_server_version pop.minVer
@@ -836,7 +865,7 @@ let rec recv_fragment_client (ci:ConnectionInfo) (state:hs_state) (agreedVersion
                     InError(AD_illegal_parameter, perror __SOURCE_FILE__ __LINE__ "Compression method negotiation",state)
                   else
                   // Parse extensions
-                  match parseServerExtensions sh_neg_extensions with
+                  (match parseServerExtensions sh_neg_extensions with
                   | Error z ->
                       let (x,y) = z in
                       InError(x,y,state)
@@ -850,7 +879,7 @@ let rec recv_fragment_client (ci:ConnectionInfo) (state:hs_state) (agreedVersion
                         (* use resumption *)
                         (* Search for the session in our DB *)
                         let sess = SessionDB.select state.sDB sid Client state.poptions.server_name in
-                        match sess with
+                        (match sess with
                         | None ->
                             (* This can happen, although we checked for the session before starting the HS.
                                 For example, the session may have expired between us sending client hello, and now. *)
@@ -859,53 +888,51 @@ let rec recv_fragment_client (ci:ConnectionInfo) (state:hs_state) (agreedVersion
                         let (si,ms) = storable in
                         let log = log @| to_log in
                         (* Check that protocol version, ciphersuite and compression method are indeed the correct ones *)
+                        (* We know statically that this session supports extended master secret, because we never ask to
+                           resume sessions for which the extension was not negotiated *)
 
                           if si.protocol_version = sh_server_version then
                             if si.cipher_suite = sh_cipher_suite then
                                 if si.compression = sh_compression_method then
-                                    (* Also check for resumption extension information *)
-                                    if checkServerResumptionInfoExtension pop sExtL si.session_hash then
-                                        let next_ci = getNextEpochs ci si crand sh_random in
-                                        let nki_in = id next_ci.id_in in
-                                        let nki_out = id next_ci.id_out in
-                                        let (reader,writer) = PRF.keyGenClient nki_in nki_out ms in
-                                        let nout = next_ci.id_out in
-                                        let nin = next_ci.id_in in
+                                    let next_ci = getNextEpochs ci si crand sh_random in
+                                    let nki_in = id next_ci.id_in in
+                                    let nki_out = id next_ci.id_out in
+                                    let (reader,writer) = PRF.keyGenClient nki_in nki_out ms in
+                                    let nout = next_ci.id_out in
+                                    let nin = next_ci.id_in in
 
-                                        Pi.expect (Authorize(Client,si)); // annotation
-                                        recv_fragment_client ci
-                                            {state with pstate = PSClient(ServerCCSResume(nout,writer,
-                                                                                        nin,reader,
-                                                                                        ms,log))}
-                                            (Some(sh_server_version))
-                                    else
-                                        InError(AD_handshake_failure, perror __SOURCE_FILE__ __LINE__ "Wrong resumption extension information provided",state)
+                                    Pi.expect (Authorize(Client,si)); // annotation
+                                    recv_fragment_client ci
+                                        {state with pstate = PSClient(ServerCCSResume(nout,writer,
+                                                                                    nin,reader,
+                                                                                    ms,log))}
+                                        (somePV sh_server_version)
                                 else
                                     InError(AD_illegal_parameter, perror __SOURCE_FILE__ __LINE__ "Compression method negotiation",state)
                             else
 
                                 InError(AD_illegal_parameter, perror __SOURCE_FILE__ __LINE__ "Ciphersuite negotiation",state)
                           else
-                              InError(AD_illegal_parameter, perror __SOURCE_FILE__ __LINE__ "Protocol version negotiation",state)
+                              InError(AD_illegal_parameter, perror __SOURCE_FILE__ __LINE__ "Protocol version negotiation",state))
 
                     else
                         (* we did not request resumption, or the server didn't accept it: do a full handshake *)
                         (* define the sinfo we're going to establish *)
-                        match negotiateClientExtensions cExtL sExtL false (* Not resuming *) sh_cipher_suite with
+                        (match negotiateClientExtensions cExtL sExtL false (* Not resuming *) sh_cipher_suite with
                         | Error(z) -> let (x,y) = z in InError(x,y,state)
                         | Correct(nExtL) ->
                             let next_pstate = on_serverHello_full ci crand log to_log shello nExtL in
-                            recv_fragment_client ci {state with pstate = next_pstate}  (Some sh_server_version)
+                            recv_fragment_client ci {state with pstate = next_pstate} (somePV sh_server_version))
                   else
-                    InError (AD_handshake_failure,perror __SOURCE_FILE__ __LINE__ "Wrong renegotiation information provided",state)
+                    InError (AD_handshake_failure,perror __SOURCE_FILE__ __LINE__ "Wrong renegotiation information provided",state)))
 
             | _ ->
-                InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "ServerHello arrived in the wrong state",state)
+                InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "ServerHello arrived in the wrong state",state))
         | HT_certificate ->
-            match cState with
+            (match cState with
             // Most of the code in the branches is duplicated, but it helps for verification
             | ServerCertificateRSA (si,log) ->
-                match parseClientOrServerCertificate payload with
+                (match parseClientOrServerCertificate payload with
                 | Error z ->
                     let (x,y) = z in
                     InError(x,y,state)
@@ -915,18 +942,18 @@ let rec recv_fragment_client (ci:ConnectionInfo) (state:hs_state) (agreedVersion
                     let allowedAlgs = default_sigHashAlg si.protocol_version si.cipher_suite in // In TLS 1.2, this is the same as we sent in our extension
                     if Cert.is_chain_for_key_encryption certs then
                         let advice = Cert.validate_cert_chain allowedAlgs certs in
-                        match Cert.get_hint certs with
+                        (match Cert.get_hint certs with
                         | None ->
                           InQuery(certs,false,{state with pstate = PSClient(ClientCheckingCertificateRSA(si,log,certs,agreedVersion,to_log))})
                         | Some(name) ->
                           if (name = state.poptions.server_name) then
                               InQuery(certs,advice,{state with pstate = PSClient(ClientCheckingCertificateRSA(si,log,certs,agreedVersion,to_log))})
                           else
-                              InQuery(certs,false,{state with pstate = PSClient(ClientCheckingCertificateRSA(si,log,certs,agreedVersion,to_log))})
+                              InQuery(certs,false,{state with pstate = PSClient(ClientCheckingCertificateRSA(si,log,certs,agreedVersion,to_log))}))
                     else
-                        InError(AD_bad_certificate_fatal, perror __SOURCE_FILE__ __LINE__ "Server sent wrong certificate type",state)
+                        InError(AD_bad_certificate_fatal, perror __SOURCE_FILE__ __LINE__ "Server sent wrong certificate type",state))
             | ServerCertificateDHE (si,log) ->
-                match parseClientOrServerCertificate payload with
+                (match parseClientOrServerCertificate payload with
                 | Error z ->
                     let (x,y) = z in
                     InError(x,y,state)
@@ -936,103 +963,109 @@ let rec recv_fragment_client (ci:ConnectionInfo) (state:hs_state) (agreedVersion
                     let allowedAlgs = default_sigHashAlg si.protocol_version si.cipher_suite in // In TLS 1.2, this is the same as we sent in our extension
                     if Cert.is_chain_for_signing certs then
                         let advice = Cert.validate_cert_chain allowedAlgs certs in
-                        match Cert.get_hint certs with
+                        (match Cert.get_hint certs with
                         | None -> InQuery(certs,false,{state with pstate = PSClient(ClientCheckingCertificateDHE(si,log,certs,agreedVersion,to_log))})
                         | Some(name) -> let advice = advice && (name = state.poptions.server_name) in
-                                        InQuery(certs,advice,{state with pstate = PSClient(ClientCheckingCertificateDHE(si,log,certs,agreedVersion,to_log))})
+                                        InQuery(certs,advice,{state with pstate = PSClient(ClientCheckingCertificateDHE(si,log,certs,agreedVersion,to_log))}))
                     else
-                        InError(AD_bad_certificate_fatal, perror __SOURCE_FILE__ __LINE__ "Server sent wrong certificate type",state)
+                        InError(AD_bad_certificate_fatal, perror __SOURCE_FILE__ __LINE__ "Server sent wrong certificate type",state))
             | ServerCertificateDH (si,log) ->
                 InError(AD_internal_error, perror __SOURCE_FILE__ __LINE__ "Unimplemented",state)
             | _ ->
-                InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "Certificate arrived in the wrong state",state)
+                InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "Certificate arrived in the wrong state",state))
 
         | HT_server_key_exchange ->
-            match cState with
+            (match cState with
             | ServerKeyExchangeDHE(si,log) ->
-                match parseServerKeyExchange_DHE si.protocol_version si.cipher_suite payload with
+                let ops = state.poptions in
+                let dhstrength = ops.dhPQMinLength in
+                (match parseServerKeyExchange_DHE state.dhdb dhstrength si.protocol_version si.cipher_suite payload with
                 | Error z ->
                     let (x,y) = z in
                     InError(x,y,state)
                 | Correct(v) ->
-                    let (p,g,y,alg,signature) = v in
+                    let (dhdb,dhp,y,alg,signature) = v in
+                    let state = {state with dhdb = dhdb} in
                     let vk = Cert.get_chain_public_signing_key si.serverID alg in
                     match vk with
                     | Error z ->
                         let (x,y) = z in
                         InError(x,y,state)
                     | Correct(vkey) ->
-                    let dheb = dheParamBytes p g y in
-                    let expected = si.init_crand @| si.init_srand @| dheb in
-                    if Sig.verify alg vkey expected signature then
-                        let si_old = si in
-                        let si = {si with serverSigAlg = alg} in
-                        let log = log @| to_log in
+                        let dheb = dheParamBytes dhp.dhp dhp.dhg y in
+                        let expected = si.init_crand @| si.init_srand @| dheb in
+                        if Sig.verify alg vkey expected signature then
+                            (let si_old = si in
+                            let si = {si with serverSigAlg = alg} in
+                            let log = log @| to_log in
 #if verify
-                        Pi.expect(UpdatesServerSigAlg(si_old,si));
+                            Pi.expect(UpdatesServerSigAlg(si_old,si));
 #endif
-                        recv_fragment_client ci
-                          {state with pstate = PSClient(CertificateRequestDHE(si,p,g,y,log))}
-                          agreedVersion
-                    else
-                        InError(AD_decrypt_error, perror __SOURCE_FILE__ __LINE__ "",state)
+                            recv_fragment_client ci
+                              {state with pstate = PSClient(CertificateRequestDHE(si,dhp,y,log))}
+                              agreedVersion)
+                        else
+                            InError(AD_decrypt_error, perror __SOURCE_FILE__ __LINE__ "",state))
 
             | ServerKeyExchangeDH_anon(si,log) ->
-                match parseServerKeyExchange_DH_anon payload with
+                let ops = state.poptions in
+                let dhstrength = ops.dhPQMinLength in
+                (match parseServerKeyExchange_DH_anon state.dhdb dhstrength payload with
                 | Error z -> let (x,y) = z in InError(x,y,state)
                 | Correct(v) ->
-                    let (p,g,y) = v in
+                    let (dhdb,dhp,y) = v in
                     let log = log @| to_log in
+                    let state = {state with dhdb = dhdb} in
                     recv_fragment_client ci
-                      {state with pstate = PSClient(ServerHelloDoneDH_anon(si,p,g,y,log))}
-                      agreedVersion
-            | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "ServerKeyExchange arrived in the wrong state",state)
+                      {state with pstate = PSClient(ServerHelloDoneDH_anon(si,dhp,y,log))}
+                      agreedVersion)
+            | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "ServerKeyExchange arrived in the wrong state",state))
 
         | HT_certificate_request ->
-            match cState with
+            (match cState with
             | CertificateRequestRSA(si,log) ->
                 (* Log the received packet *)
                 let log = log @| to_log in
 
                 (* Note: in next statement, use si, because the handshake runs according to the session we want to
                    establish, not the current one *)
-                match parseCertificateRequest si.protocol_version payload with
+                (match parseCertificateRequest si.protocol_version payload with
                 | Error z -> let (x,y) = z in  InError(x,y,state)
                 | Correct(v) ->
-                let (certType,alg,distNames) = v in
-                let client_cert = find_client_cert_sign certType alg distNames si.protocol_version state.poptions.client_name in
-                let si' = {si with client_auth = true} in
+                    let (certType,alg,distNames) = v in
+                    let client_cert = find_client_cert_sign certType alg distNames si.protocol_version state.poptions.client_name in
+                    let si' = {si with client_auth = true} in
 
 #if verify
-                Pi.expect (UpdatesClientAuth(si,si'));
+                    Pi.expect (UpdatesClientAuth(si,si'));
 #endif
-                recv_fragment_client ci
-                  {state with pstate = PSClient(ServerHelloDoneRSA(si',client_cert,log))}
-                  agreedVersion
-            | CertificateRequestDHE(si,p,g,y,log) ->
+                    recv_fragment_client ci
+                      {state with pstate = PSClient(ServerHelloDoneRSA(si',client_cert,log))}
+                      agreedVersion)
+            | CertificateRequestDHE(si,dhp,y,log) ->
                 // Duplicated code
                 (* Log the received packet *)
                 let log = log @| to_log in
 
                 (* Note: in next statement, use si, because the handshake runs according to the session we want to
                    establish, not the current one *)
-                match parseCertificateRequest si.protocol_version payload with
+                (match parseCertificateRequest si.protocol_version payload with
                 | Error(z) -> let (x,y) = z in  InError(x,y,state)
                 | Correct(v) ->
-                let (certType,algs,distNames) = v in
-                let client_cert = find_client_cert_sign certType algs distNames si.protocol_version state.poptions.client_name in
-                let si' = {si with client_auth = true} in
+                    let (certType,algs,distNames) = v in
+                    let client_cert = find_client_cert_sign certType algs distNames si.protocol_version state.poptions.client_name in
+                    let si' = {si with client_auth = true} in
 
 #if verify
-                Pi.expect (UpdatesClientAuth(si,si'));
+                    Pi.expect (UpdatesClientAuth(si,si'));
 #endif
-                recv_fragment_client ci
-                  {state with pstate = PSClient(ServerHelloDoneDHE(si',client_cert,p,g,y,log))}
-                  agreedVersion
-            | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "CertificateRequest arrived in the wrong state",state)
+                    recv_fragment_client ci
+                      {state with pstate = PSClient(ServerHelloDoneDHE(si',client_cert,dhp,y,log))}
+                      agreedVersion)
+            | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "CertificateRequest arrived in the wrong state",state))
 
         | HT_server_hello_done ->
-            match cState with
+            (match cState with
             | CertificateRequestRSA(si,log) ->
                 let pl = length payload in
                 if pl = 0 then
@@ -1078,10 +1111,10 @@ let rec recv_fragment_client (ci:ConnectionInfo) (state:hs_state) (agreedVersion
                     InError(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "",state)
 #if verify
 #else
-            | ServerHelloDoneDH_anon(si,p,g,y,log)
+            | ServerHelloDoneDH_anon(si,dhp,y,log)
 
 #endif
-            | CertificateRequestDHE(si,p,g,y,log) ->
+            | CertificateRequestDHE(si,dhp,y,log) ->
                 if length payload = 0 then
                     (* Log the received packet *)
                     let log' = log @| to_log in
@@ -1094,7 +1127,7 @@ let rec recv_fragment_client (ci:ConnectionInfo) (state:hs_state) (agreedVersion
                     Pi.expect (ClientLogAfterServerHelloDoneDHE(si',log'));
 #endif
                     let log = log' in
-                    let dhe = prepare_client_output_full_DHE ci state si' None p g y log in
+                    let dhe = prepare_client_output_full_DHE ci state si' None dhp y log in
                     match dhe with
                     | Error z ->
                         let (x,y) = z in
@@ -1106,12 +1139,12 @@ let rec recv_fragment_client (ci:ConnectionInfo) (state:hs_state) (agreedVersion
                           agreedVersion
                 else
                     InError(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "",state)
-            | ServerHelloDoneDHE(si,skey,p,g,y,log) ->
+            | ServerHelloDoneDHE(si,skey,dhp,y,log) ->
                 if length  payload = 0 then
                     (* Log the received packet *)
                     let log = log @| to_log in
 
-                    match prepare_client_output_full_DHE ci state si skey p g y log with
+                    match prepare_client_output_full_DHE ci state si skey dhp y log with
                     | Error z ->
                         let (x,y) = z in
                         InError (x,y, state)
@@ -1122,21 +1155,22 @@ let rec recv_fragment_client (ci:ConnectionInfo) (state:hs_state) (agreedVersion
                           agreedVersion
                 else
                     InError(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "",state)
-            | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "ServerHelloDone arrived in the wrong state",state)
+            | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "ServerHelloDone arrived in the wrong state",state))
 
         | HT_finished ->
-            match cState with
+            (match cState with
             | ServerFinished(si,ms,e,cvd,log) ->
                 if PRF.checkVerifyData si ms Server log payload then
-                    let sDB =
+                    (let sDB =
                         if length si.sessionID = 0 then state.sDB
                         else SessionDB.insert state.sDB si.sessionID Client state.poptions.server_name (si,ms)
+                    in
                     (* Should prove from checkVerifyData above *)
 #if verify
                     Pi.expect (Complete(ci));
 #endif
                     check_negotiation Client si state.poptions;
-                    InComplete({state with pstate = PSClient(ClientIdle(cvd,payload)); sDB = sDB})
+                    InComplete({state with pstate = PSClient(ClientIdle(cvd,payload)); sDB = sDB}))
                 else
                     InError(AD_decrypt_error, perror __SOURCE_FILE__ __LINE__ "Verify data did not match",state)
             | ServerFinishedResume(e,w,ms,log) ->
@@ -1150,11 +1184,11 @@ let rec recv_fragment_client (ci:ConnectionInfo) (state:hs_state) (agreedVersion
                     InFinished({state with pstate = PSClient(ClientWritingCCSResume(e,w,ms,payload,log))})
                 else
                     InError(AD_decrypt_error, perror __SOURCE_FILE__ __LINE__ "Verify data did not match",state)
-            | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "Finished arrived in the wrong state",state)
-        | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "Unrecognized message",state)
+            | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "Finished arrived in the wrong state",state))
+        | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "Unrecognized message",state))
 
       (* Should never happen *)
-      | PSServer(_) -> unexpected "[recv_fragment_client] should only be invoked when in client role."
+      | PSServer(_) -> unexpected "[recv_fragment_client] should only be invoked when in client role."))
 
 let prepare_server_output_full_RSA (ci:ConnectionInfo) state si cv calgs sExtL log =
     let ext = serverExtensionsBytes sExtL in
@@ -1174,7 +1208,7 @@ let prepare_server_output_full_RSA (ci:ConnectionInfo) state si cv calgs sExtL l
           (* Log the output and put it into the output buffer *)
           let log = log @| output in
           let ps = serverState ci (ClientCertificateRSA(si,cv,sk,log)) in
-          correct ({state with hs_outgoing = output
+          correct ({state with hs_outgoing = output;
                                pstate = ps},
                     si.protocol_version)
         else
@@ -1185,7 +1219,7 @@ let prepare_server_output_full_RSA (ci:ConnectionInfo) state si cv calgs sExtL l
           Pi.expect (ServerLogBeforeClientCertificateRSA_NoAuth(si,cv,log));
 #endif
           let ps = serverState ci (ClientKeyExchangeRSA(si,cv,sk,log)) in
-          correct ({state with hs_outgoing = output
+          correct ({state with hs_outgoing = output;
                                pstate = ps},
                     si.protocol_version)
 
@@ -1215,10 +1249,14 @@ let prepare_server_output_full_DHE (ci:ConnectionInfo) state si certAlgs sExtL l
 
         (* ServerKeyExchange *)
 
-        let (p,g,y,x) = DH.serverGen() in
-        //~ pms-KEM: ((p,g),y),(((p,g),y),x) = keygen_DHE()
+        let dhparams_filename = state.poptions.dhDefaultGroupFileName in
+        let ops = state.poptions in
+        let dhstrength = ops.dhPQMinLength in
+        let (dhdb,dhp,gx,x) = DH.serverGen dhparams_filename state.dhdb dhstrength  in
+        //~ pms-KEM: (dhp,gx),((dhp,gx),x) = keygen_DHE()
+        let state = {state with dhdb = dhdb} in
 
-        let dheB = dheParamBytes p g y in
+        let dheB = dheParamBytes dhp.dhp dhp.dhg gx in
         let toSign = si.init_crand @| si.init_srand @| dheB in
         let sign = Sig.sign alg sk toSign in
 
@@ -1233,10 +1271,10 @@ let prepare_server_output_full_DHE (ci:ConnectionInfo) state si certAlgs sExtL l
 #if verify
           Pi.expect (ServerLogBeforeClientCertificateDHE_Auth(si,log));
 #endif
-          let ps = serverState ci (ClientCertificateDHE(si,p,g,y,x,log)) in
-        (* Compute the next state of the server *)
+          let ps = serverState ci (ClientCertificateDHE(si,dhp,gx,x,log)) in
+          (* Compute the next state of the server *)
             correct (
-              {state with hs_outgoing = output
+              {state with hs_outgoing = output;
                           pstate = ps},
                si.protocol_version)
         else
@@ -1246,13 +1284,11 @@ let prepare_server_output_full_DHE (ci:ConnectionInfo) state si certAlgs sExtL l
 #if verify
           Pi.expect (ServerLogBeforeClientCertificateDHE_NoAuth(si,log));
 #endif
-          let ps = serverState ci (ClientKeyExchangeDHE(si,p,g,y,x,log)) in
+          let ps = serverState ci (ClientKeyExchangeDHE(si,dhp,gx,x,log)) in
             correct (
-              {state with hs_outgoing = output
+              {state with hs_outgoing = output;
                           pstate = ps},
                si.protocol_version)
-
-        (* ClientKeyExchangeDHE(si,p,g,x,log) should carry PP((p,g)) /\ ?gx. DHE.Exp((p,g),x,gx) *)
 
 let prepare_server_output_full_DH_anon (ci:ConnectionInfo) (state:hs_state) (si:SessionInfo) (sExtL:list<serverExtension>) (log:log) : Result<(hs_state * ProtocolVersion)> =
 #if verify
@@ -1263,16 +1299,20 @@ let prepare_server_output_full_DH_anon (ci:ConnectionInfo) (state:hs_state) (si:
 
     (* ServerKEyExchange *)
 
-    let (p,g,y,x) = DH.serverGen() in
+    let default_params_filename = state.poptions.dhDefaultGroupFileName in
+    let ops = state.poptions in
+    let dhstrength = ops.dhPQMinLength in
+    let (dhdb,dhp,y,x) = DH.serverGen default_params_filename state.dhdb dhstrength in
+    let state = {state with dhdb = dhdb} in
 
-    let serverKEXB = serverKeyExchangeBytes_DH_anon p g y in
+    let serverKEXB = serverKeyExchangeBytes_DH_anon dhp.dhp dhp.dhg y in
 
     let output = serverHelloB @|serverKEXB @| serverHelloDoneBytes in
     (* Log the output and put it into the output buffer *)
     let log = log @| output in
     (* Compute the next state of the server *)
-    let ps = serverState ci (ClientKeyExchangeDH_anon(si,p,g,y,x,log)) in
-    correct ({state with hs_outgoing = output
+    let ps = serverState ci (ClientKeyExchangeDH_anon(si,dhp,y,x,log)) in
+    correct ({state with hs_outgoing = output;
                          pstate = ps},
              si.protocol_version)
 #endif
@@ -1300,11 +1340,11 @@ let negotiate cList sList =
 let prepare_server_output_resumption ci state crand cExtL (sid:sessionID) storedSession cvd svd log =
     let (si,ms) = storedSession in
     let srand = Nonce.mkHelloRandom () in
-    let (sExtL,nExtL) = negotiateServerExtensions cExtL state.poptions si.cipher_suite (cvd,svd) (Some(si.session_hash))
+    let (sExtL,nExtL) = negotiateServerExtensions cExtL state.poptions si.cipher_suite (cvd,svd) true in
     let ext = serverExtensionsBytes sExtL in
     let sHelloB = serverHelloBytes si srand ext in
 
-    let log = log @| sHelloB
+    let log = log @| sHelloB in
     let next_ci = getNextEpochs ci si crand srand in
     let nki_in = id next_ci.id_in in
     let nki_out = id next_ci.id_out in
@@ -1312,7 +1352,7 @@ let prepare_server_output_resumption ci state crand cExtL (sid:sessionID) stored
 #if verify
     Pi.expect (ServerLogBeforeServerFinishedResume(crand,srand,si,log));
 #endif
-    {state with hs_outgoing = sHelloB
+    {state with hs_outgoing = sHelloB;
                 pstate = PSServer(ServerWritingCCSResume(next_ci.id_out,writer,
                                                          next_ci.id_in,reader,
                                                          ms,log))}
@@ -1327,28 +1367,29 @@ let startServerFull (ci:ConnectionInfo) state (cHello:ProtocolVersion * crand * 
     else
         match negotiate ch_cipher_suites cfg.ciphersuites with
         | Some(cs) ->
-            match negotiate ch_compression_methods cfg.compressions with
+            (match negotiate ch_compression_methods cfg.compressions with
             | Some(cm) ->
                 let sid = Nonce.random 32 in
                 let srand = Nonce.mkHelloRandom () in
-                let (sExtL, nExtL) = negotiateServerExtensions cExtL cfg cs (cvd, svd) None
+                let (sExtL, nExtL) = negotiateServerExtensions cExtL cfg cs (cvd, svd) false in
                 (* Fill in the session info we're establishing *)
-                let si = { clientID         = []
-                           clientSigAlg = (SA_RSA,SHA)
-                           client_auth      = cfg.request_client_certificate
-                           serverID         = []
-                           serverSigAlg = (SA_RSA,SHA)
-                           sessionID        = sid
-                           protocol_version = version
-                           cipher_suite     = cs
-                           compression      = cm
-                           extensions       = nExtL
-                           init_crand       = ch_random
-                           init_srand       = srand
-                           pmsId            = noPmsId
+                let si = { clientID         = [];
+                           clientSigAlg = (SA_RSA,SHA);
+                           client_auth      = cfg.request_client_certificate;
+                           serverID         = [];
+                           serverSigAlg = (SA_RSA,SHA);
+                           sessionID        = sid;
+                           protocol_version = version;
+                           cipher_suite     = cs;
+                           compression      = cm;
+                           extensions       = nExtL;
+                           init_crand       = ch_random;
+                           init_srand       = srand;
+                           pmsId            = noPmsId;
                            session_hash     = empty_bytes}
+                in
                 prepare_server_output_full ci state si ch_client_version sExtL log
-            | None -> Error(AD_handshake_failure, perror __SOURCE_FILE__ __LINE__ "Compression method negotiation")
+            | None -> Error(AD_handshake_failure, perror __SOURCE_FILE__ __LINE__ "Compression method negotiation"))
         | None ->     Error(AD_handshake_failure, perror __SOURCE_FILE__ __LINE__ "Ciphersuite negotiation")
 
 let rec recv_fragment_server (ci:ConnectionInfo) (state:hs_state) (agreedVersion:option<ProtocolVersion>) =
@@ -1357,21 +1398,21 @@ let rec recv_fragment_server (ci:ConnectionInfo) (state:hs_state) (agreedVersion
     | Correct(res) ->
       match res with
       | None ->
-          match agreedVersion with
+          (match agreedVersion with
           | None      -> InAck(state)
-          | Some (pv) -> InVersionAgreed(state,pv)
+          | Some (pv) -> InVersionAgreed(state,pv))
       | Some (res) ->
       let (state,hstype,payload,to_log) = res in
       match state.pstate with
       | PSServer(sState) ->
-        match hstype with
+        (match hstype with
         | HT_client_hello ->
-            match sState with
+            (match sState with
             | ClientHello(cvd,svd) | ServerIdle(cvd,svd) ->
-                match parseClientHello payload with
+                (match parseClientHello payload with
                 | Error(z) -> let (x,y) = z in  InError(x,y,state)
                 | Correct (cHello) ->
-                let (ch_client_version,ch_random,ch_session_id,ch_cipher_suites,ch_compression_methods,ch_extensions) = cHello
+                let (ch_client_version,ch_random,ch_session_id,ch_cipher_suites,ch_compression_methods,ch_extensions) = cHello in
                 (* Log the received message *)
                 let log = to_log in
                 (* handle extensions *)
@@ -1391,33 +1432,31 @@ let rec recv_fragment_server (ci:ConnectionInfo) (state:hs_state) (agreedVersion
                             (* Client asked for resumption, let's see if we can satisfy the request *)
                             match SessionDB.select state.sDB ch_session_id Server state.poptions.client_name with
                             | Some sentry ->
-                                let (storedSinfo,_)  = sentry in
+                                (let (storedSinfo,_)  = sentry in
                                 if geqPV ch_client_version storedSinfo.protocol_version
                                   && List.memr ch_cipher_suites storedSinfo.cipher_suite
                                   && List.memr ch_compression_methods storedSinfo.compression
                                 then
-                                    // Check extended resumption information
-                                        // Resumption extension not supported by client. Proceed with full handshake
-                                        match startServerFull ci state cHello cExtL cvd svd log with
-                                        | Correct(v) -> let (state,pv) = v in recv_fragment_server ci state (somePV (pv))
-                                        | Error(z) -> let (x,y) = z in InError(x,y,state)
+                                        (* Proceed with resumption *)
+                                        let state = prepare_server_output_resumption ci state ch_random cExtL ch_session_id sentry cvd svd log in
+                                        recv_fragment_server ci state (somePV(storedSinfo.protocol_version))
                                 else
                                   match startServerFull ci state cHello cExtL cvd svd log with
                                     | Correct(v) -> let (state,pv) = v in recv_fragment_server ci state (somePV (pv))
-                                    | Error(z) -> let (x,y) = z in  InError(x,y,state)
+                                    | Error(z) -> let (x,y) = z in  InError(x,y,state))
                             | None ->
-                                  match startServerFull ci state cHello cExtL cvd svd log with
+                                  (match startServerFull ci state cHello cExtL cvd svd log with
                                     | Correct(v) -> let (state,pv) = v in recv_fragment_server ci state (somePV (pv))
-                                    | Error(z) -> let (x,y) = z in  InError(x,y,state)
+                                    | Error(z) -> let (x,y) = z in  InError(x,y,state))
                     else
                         (* We don't accept an insecure client *)
-                        InError(AD_handshake_failure, perror __SOURCE_FILE__ __LINE__ "Safe renegotiation not supported by the peer", state)
-            | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "ClientHello arrived in the wrong state",state)
+                        InError(AD_handshake_failure, perror __SOURCE_FILE__ __LINE__ "Safe renegotiation not supported by the peer", state))
+            | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "ClientHello arrived in the wrong state",state))
 
         | HT_certificate ->
-            match sState with
+            (match sState with
             | ClientCertificateRSA (si,cv,sk,log) ->
-                match parseClientOrServerCertificate payload with
+                (match parseClientOrServerCertificate payload with
                 | Error(z) -> let (x,y) = z in  InError(x,y,state)
                 | Correct([]) ->
                     InError(AD_handshake_failure, perror __SOURCE_FILE__ __LINE__ "Client sent empty certificate",state)
@@ -1435,10 +1474,10 @@ let rec recv_fragment_server (ci:ConnectionInfo) (state:hs_state) (agreedVersion
                                 InQuery(certs,false,
                                         {state with pstate = PSServer(ServerCheckingCertificateRSA(si,cv,sk,log,certs,to_log))})
                     else
-                        InError(AD_bad_certificate_fatal, perror __SOURCE_FILE__ __LINE__ "Client sent wrong certificate type",state)
-            | ClientCertificateDHE (si,p,g,gx,x,log) ->
+                        InError(AD_bad_certificate_fatal, perror __SOURCE_FILE__ __LINE__ "Client sent wrong certificate type",state))
+            | ClientCertificateDHE (si,dhp,gx,x,log) ->
                 // Duplicated code from above.
-                match parseClientOrServerCertificate payload with
+                (match parseClientOrServerCertificate payload with
                 | Error(z) -> let (x,y) = z in  InError(x,y,state)
                 | Correct([]) ->
                     InError(AD_handshake_failure, perror __SOURCE_FILE__ __LINE__ "Client sent empty certificate",state)
@@ -1447,74 +1486,74 @@ let rec recv_fragment_server (ci:ConnectionInfo) (state:hs_state) (agreedVersion
                         let advice = Cert.validate_cert_chain (default_sigHashAlg si.protocol_version si.cipher_suite) certs in
                         match Cert.get_hint certs with
                             | None ->
-                                InQuery(certs,false,{state with pstate = PSServer(ServerCheckingCertificateDHE(si,p,g,gx,x,log,certs,to_log))})
+                                InQuery(certs,false,{state with pstate = PSServer(ServerCheckingCertificateDHE(si,dhp,gx,x,log,certs,to_log))})
                             | Some(name) when advice && (name = state.poptions.client_name) ->
-                                InQuery(certs,true,{state with pstate = PSServer(ServerCheckingCertificateDHE(si,p,g,gx,x,log,certs,to_log))})
+                                InQuery(certs,true,{state with pstate = PSServer(ServerCheckingCertificateDHE(si,dhp,gx,x,log,certs,to_log))})
                             | Some(name) ->
-                                InQuery(certs,false,{state with pstate = PSServer(ServerCheckingCertificateDHE(si,p,g,gx,x,log,certs,to_log))})
+                                InQuery(certs,false,{state with pstate = PSServer(ServerCheckingCertificateDHE(si,dhp,gx,x,log,certs,to_log))})
                     else
-                        InError(AD_bad_certificate_fatal, perror __SOURCE_FILE__ __LINE__ "Client sent wrong certificate type",state)
+                        InError(AD_bad_certificate_fatal, perror __SOURCE_FILE__ __LINE__ "Client sent wrong certificate type",state))
             | ClientCertificateDH  (si,log) ->  InError(AD_internal_error, perror __SOURCE_FILE__ __LINE__ "Unimplemented",state)
-            | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "Certificate arrived in the wrong state",state)
+            | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "Certificate arrived in the wrong state",state))
 
         | HT_client_key_exchange ->
-            match sState with
+            (match sState with
             | ClientKeyExchangeRSA(si,cv,sk,log) ->
-                match parseClientKEX_RSA si sk cv state.poptions payload with
+                (match parseClientKEX_RSA si sk cv state.poptions payload with
                 | Error(z) -> let (x,y) = z in  InError(x,y,state)
                 | Correct(x) ->
                     let (pk,rsapms) = x in
 
-                    let pms = PMS.RSAPMS(pk,cv,rsapms)
-                    let pmsid = pmsId pms
+                    let pms = PMS.RSAPMS(pk,cv,rsapms) in
+                    let pmsid = pmsId pms in
                     let si = {si with pmsId = pmsid} in
                     let log = log @| to_log in
                     let (si,ms) = extract si pms log in
 
                     (* move to new state *)
-                    if si.client_auth then
+                    if si.client_auth then (
 #if verify
                         Pi.expect(ServerLogBeforeClientCertificateVerifyRSA(si,log));
 #endif
                         recv_fragment_server ci
                           {state with pstate = PSServer(CertificateVerify(si,ms,log))}
-                          agreedVersion
-                    else
+                          agreedVersion)
+                    else (
 #if verify
                         Pi.expect(ServerLogBeforeClientCertificateVerifyRSA(si,log));
                         Pi.expect(ServerLogBeforeClientFinished_NoAuth(si,log));
 #endif
                         recv_fragment_server ci
                           {state with pstate = PSServer(ClientCCS(si,ms,log))}
-                          agreedVersion
-            | ClientKeyExchangeDHE(si,p,g,gx,x,log) ->
-                match parseClientKEXExplicit_DH p g payload with
+                          agreedVersion))
+            | ClientKeyExchangeDHE(si,dhp,gx,x,log) ->
+                (match parseClientKEXExplicit_DH dhp payload with
                 | Error(z) -> let (x,y) = z in  InError(x,y,state)
                 | Correct(y) ->
                     let log = log @| to_log in
-                    (* from the local state, we know: PP((p,g)) /\ ?gx. DHE.Exp((p,g),x,gx) ; tweak the ?gx for genPMS. *)
+                    (* from the local state, we know: PP(dhp) /\ ?gx. DHE.Exp(dhp,x,gx) ; tweak the ?gx for genPMS. *)
 
                     (* these 3 lines implement  ms-KEM(DH).dec where:
-                       (pv,h,l) are included in si, sk is (((p,g),gx),x), c is y *)
+                       (pv,h,l) are included in si, sk is ((dhp,gx),x), c is y *)
 
                     (* these 2 lines implement pms-KEM(DH).dec(pv?, sk, c) *)
 
-                    let dhpms = DH.serverExp p g gx y x in
+                    let dhpms = DH.serverExp dhp gx y x in
 
-                    let pms = PMS.DHPMS(p,g,gx,y,dhpms) in
+                    let pms = PMS.DHPMS(dhp.dhp,dhp.dhg,gx,y,dhpms) in
                     let si_old = si in
                     let si = {si_old with pmsId = pmsId(pms)} in
 #if verify
                     Pi.expect(UpdatesPmsID(si_old,si));
 
 #endif
-                    (* StrongHS(si) /\ DHE.Exp((p,g),?cx,y) -> DHE.Secret(pms) *)
+                    (* StrongHS(si) /\ DHE.Exp(dhp,?cx,y) -> DHE.Secret(pms) *)
                     let (si,ms) = extract si pms log in
-                    (* StrongHS(si) /\ DHE.Exp((p,g),?cx,y) -> PRFs.Secret(ms) *)
+                    (* StrongHS(si) /\ DHE.Exp(dhp,?cx,y) -> PRFs.Secret(ms) *)
 
                     (* we rely on scopes & type safety to get forward secrecy*)
                     (* move to new state *)
-                    if si.client_auth then
+                    if si.client_auth then (
 #if verify
                         Pi.expect(Authorize(Server,si));
                         Pi.expect(UpdatesPmsID(si_old,si));
@@ -1523,37 +1562,37 @@ let rec recv_fragment_server (ci:ConnectionInfo) (state:hs_state) (agreedVersion
 #endif
                         recv_fragment_server ci
                           {state with pstate = PSServer(CertificateVerify(si,ms,log))}
-                          agreedVersion
-                    else
+                          agreedVersion)
+                    else (
 #if verify
                         Pi.expect(ServerLogBeforeClientCertificateVerifyDHE(si,log));
                         Pi.expect(ServerLogBeforeClientFinished_NoAuth(si,log));
 #endif
                         recv_fragment_server ci
                           {state with pstate = PSServer(ClientCCS(si,ms,log))}
-                          agreedVersion
+                          agreedVersion))
 #if verify
 #else
-            | ClientKeyExchangeDH_anon(si,p,g,gx,x,log) ->
-                match parseClientKEXExplicit_DH p g payload with
+            | ClientKeyExchangeDH_anon(si,dhp,gx,x,log) ->
+                (match parseClientKEXExplicit_DH dhp payload with
                 | Error(z) -> let (x,y) = z in  InError(x,y,state)
                 | Correct(y) ->
                     let log = log @| to_log in
 
-                    let dhpms = DH.serverExp p g gx y x in
+                    let dhpms = DH.serverExp dhp gx y x in
 
-                    let pms = PMS.DHPMS(p,g,gx,y,dhpms) in
+                    let pms = PMS.DHPMS(dhp.dhp,dhp.dhg,gx,y,dhpms) in
                     let (si,ms) = extract si pms log in
 
                     (* move to new state *)
                     recv_fragment_server ci
                       {state with pstate = PSServer(ClientCCS(si,ms,log))}
-                      agreedVersion
+                      agreedVersion)
 #endif
-            | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "ClientKeyExchange arrived in the wrong state",state)
+            | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "ClientKeyExchange arrived in the wrong state",state))
 
         | HT_certificate_verify ->
-            match sState with
+            (match sState with
             | CertificateVerify(si,ms,log) ->
                 let allowedAlgs = default_sigHashAlg si.protocol_version si.cipher_suite in // In TLS 1.2, these are the same as we sent in CertificateRequest
                 let (verifyOK,a,_) = certificateVerifyCheck si ms allowedAlgs log payload in
@@ -1570,10 +1609,10 @@ let rec recv_fragment_server (ci:ConnectionInfo) (state:hs_state) (agreedVersion
                       agreedVersion
                 else
                     InError(AD_decrypt_error, perror __SOURCE_FILE__ __LINE__ "Certificate verify check failed",state)
-            | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "CertificateVerify arrived in the wrong state",state)
+            | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "CertificateVerify arrived in the wrong state",state))
 
         | HT_finished ->
-            match sState with
+            (match sState with
             | ClientFinished(si,ms,e,w,log) ->
                 if PRF.checkVerifyData si ms Client log payload then
                     let log = log @| to_log in
@@ -1585,16 +1624,17 @@ let rec recv_fragment_server (ci:ConnectionInfo) (state:hs_state) (agreedVersion
                     InError(AD_decrypt_error, perror __SOURCE_FILE__ __LINE__ "Verify data did not match",state)
             | ClientFinishedResume(si,ms,e,svd,log) ->
                 if PRF.checkVerifyData si ms Client log payload then
+                    (
 #if verify
                     Pi.expect (Complete(ci));
 #endif
                     check_negotiation Server si state.poptions;
-                    InComplete({state with pstate = PSServer(ServerIdle(payload,svd))})
+                    InComplete({state with pstate = PSServer(ServerIdle(payload,svd))}))
                 else
                     InError(AD_decrypt_error, perror __SOURCE_FILE__ __LINE__ "Verify data did not match",state)
-            | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "Finished arrived in the wrong state",state)
+            | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "Finished arrived in the wrong state",state))
 
-        | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "Unknown message received",state)
+        | _ -> InError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "Unknown message received",state))
       (* Should never happen *)
       | PSClient(_) -> unexpected "[recv_fragment_server] should only be invoked when in server role."
 
@@ -1622,7 +1662,7 @@ let recv_ccs (ci:ConnectionInfo) (state: hs_state) (r:range) (fragment:HSFragmen
     if equalBytes b CCSBytes then
         match state.pstate with
         | PSServer (sState) ->
-            match sState with
+            (match sState with
             | ClientCCS(si,ms,log) ->
                 let next_ci = getNextEpochs ci si si.init_crand si.init_srand in
                 let nki_in = id next_ci.id_in in
@@ -1634,16 +1674,16 @@ let recv_ccs (ci:ConnectionInfo) (state: hs_state) (r:range) (fragment:HSFragmen
                 let ci = {ci with id_in = e} in
                 let si = epochSI e in
                 InCCSAck(ci,r,{state with pstate = PSServer(ClientFinishedResume(si,ms,e,svd,log))})
-            | _ -> InCCSError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "CCS arrived in the wrong state",state)
+            | _ -> InCCSError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "CCS arrived in the wrong state",state))
         | PSClient (cstate) -> // Check that we are in the right state (CCCS)
-            match cstate with
+            (match cstate with
             | ServerCCS(si,ms,e,r,cvd,log) ->
                 let ci = {ci with id_in = e} in
                 InCCSAck(ci,r,{state with pstate = PSClient(ServerFinished(si,ms,e,cvd,log))})
             | ServerCCSResume(ew,w,er,r,ms,log) ->
                 let ci = {ci with id_in = er} in
                 InCCSAck(ci,r,{state with pstate = PSClient(ServerFinishedResume(ew,w,ms,log))})
-            | _ -> InCCSError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "CCS arrived in the wrong state",state)
+            | _ -> InCCSError(AD_unexpected_message, perror __SOURCE_FILE__ __LINE__ "CCS arrived in the wrong state",state))
     else           InCCSError(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "",state)
 
 let getMinVersion (ci:ConnectionInfo) state =
@@ -1654,7 +1694,7 @@ let authorize (ci:ConnectionInfo) (state:hs_state) (q:Cert.chain) =
     let pstate = state.pstate in
     match pstate with
     | PSClient(cstate) ->
-        match cstate with
+        (match cstate with
         | ClientCheckingCertificateRSA(si,log,certs,agreedVersion,to_log) when certs = q ->
 
             if certs = q then
@@ -1676,9 +1716,9 @@ let authorize (ci:ConnectionInfo) (state:hs_state) (q:Cert.chain) =
               {state with pstate = PSClient(ServerKeyExchangeDHE(si,log))}
               agreedVersion
         // | ClientCheckingCertificateDH -> TODO
-        | _ -> unexpected "[authorize] invoked on the wrong state"
+        | _ -> unexpected "[authorize] invoked on the wrong state")
     | PSServer(sstate) ->
-        match sstate with
+        (match sstate with
         | ServerCheckingCertificateRSA(si,cv,sk,log,c,to_log) when c = q ->
             let log = log @| to_log in
             let si' = {si with clientID = q} in
@@ -1691,7 +1731,7 @@ let authorize (ci:ConnectionInfo) (state:hs_state) (q:Cert.chain) =
               {state with pstate = PSServer(ClientKeyExchangeRSA(si',cv,sk,log))}
               None
 
-        | ServerCheckingCertificateDHE(si,p,g,gx,x,log,c,to_log) when c = q ->
+        | ServerCheckingCertificateDHE(si,dhp,gx,x,log,c,to_log) when c = q ->
             let log = log @| to_log in
             let si' = {si with clientID = q} in
             Pi.assume (Authorize(Server,si')); // ``The user authorizes q as peer clientID''
@@ -1700,10 +1740,10 @@ let authorize (ci:ConnectionInfo) (state:hs_state) (q:Cert.chain) =
             Pi.expect (ServerLogBeforeClientKeyExchangeDHE_Auth(si',log));
 #endif
             recv_fragment_server ci
-              {state with pstate = PSServer(ClientKeyExchangeDHE(si',p,g,gx,x,log))}
+              {state with pstate = PSServer(ClientKeyExchangeDHE(si',dhp,gx,x,log))}
               None
         // | ServerCheckingCertificateDH -> TODO
-        | _ -> unexpected "[authorize] invoked on the wrong state"
+        | _ -> unexpected "[authorize] invoked on the wrong state")
 
 (* function used by an ideal handshake implementation to decide whether to idealize keys
 let safe ki =

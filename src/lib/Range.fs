@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module Range
 
 open Bytes
@@ -20,19 +22,19 @@ type range = nat * nat
 type rbytes = bytes
 
 let sum (l0,h0) (l1,h1) =
-  let l = l0 + l1
-  let h = h0 + h1
+  let l = l0 + l1 in
+  let h = h0 + h1 in
   (l,h)
 
 let ivSize (e:id) =
-    let authEnc = e.aeAlg
+    let authEnc = e.aeAlg in
     match authEnc with
     | MACOnly _ -> 0
     | MtE (encAlg,_) ->
-        match encAlg with
+        (match encAlg with
         | Stream_RC4_128 -> 0
         | CBC_Stale(_) -> 0
-        | CBC_Fresh(alg) -> blockSize alg
+        | CBC_Fresh(alg) -> blockSize alg)
     | AEAD (_,_) -> Error.unexpected "[ivSize] invoked on wrong ciphersuite"
 
 let fixedPadSize id =

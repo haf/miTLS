@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module TLSPRF
 
 (* Low-level (bytes -> byte) PRF implementations for TLS *)
@@ -46,6 +48,7 @@ let ssl_verifyData ms role data =
     match role with
     | Client -> ssl_sender_client
     | Server -> ssl_sender_server
+  in
   let mm = data @| ssl_sender @| ms in
   let inner_md5  = hash MD5 (mm @| ssl_pad1_md5) in
   let outer_md5  = hash MD5 (ms @| ssl_pad2_md5 @| inner_md5) in
@@ -59,6 +62,7 @@ let ssl_verifyCertificate hashAlg ms log  =
       | SHA -> (ssl_pad1_sha1, ssl_pad2_sha1)
       | MD5 -> (ssl_pad1_md5,  ssl_pad2_md5)
       | _ -> Error.unexpected "[ssl_certificate_verify] invoked on a wrong hash algorithm"
+  in
   let forStep1 = log @| ms @| pad1 in
   let step1 = hash hashAlg forStep1 in
   let forStep2 = ms @| pad2 @| step1 in
@@ -92,8 +96,8 @@ let tls_prf secret label seed len =
   xor hmd5 hsha1 len
 
 let tls_finished_label : Role -> bytes =
-  let tls_client_label = utf8 "client finished"
-  let tls_server_label = utf8 "server finished"
+  let tls_client_label = utf8 "client finished" in
+  let tls_server_label = utf8 "server finished" in
   function
   | Client -> tls_client_label
   | Server -> tls_server_label

@@ -32,6 +32,6 @@ val connect: string -> int -> NetworkStream
 
 (* Synchronous Input/Output *)
 
-val read:  NetworkStream -> l:int{l>0} -> (string,(;l) lbytes) OptResult
-val write: NetworkStream -> bytes -> (string,unit) OptResult
+val read:  NetworkStream -> l:int{l>0} -> (string,(;l) lbytes) optResult
+val write: NetworkStream -> bytes -> (string,unit) optResult
 val close: NetworkStream -> unit

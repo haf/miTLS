@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module TLSConstants
 
 open Bytes
@@ -190,8 +192,10 @@ type cipherSuiteName =
     | TLS_DH_anon_WITH_AES_128_GCM_SHA256
     | TLS_DH_anon_WITH_AES_256_GCM_SHA384
 
+val cipherSuite_of_name: cipherSuiteName -> cipherSuite
 val cipherSuites_of_nameList: list<cipherSuiteName> -> cipherSuites
 val name_of_cipherSuite: cipherSuite -> Result<cipherSuiteName>
+val names_of_cipherSuites: cipherSuites -> Result<list<cipherSuiteName>>
 
 type preContentType =
     | Change_cipher_spec
@@ -220,7 +224,7 @@ type certType =
 val certTypeBytes: certType -> bytes
 val parseCertType: bytes -> Result<certType>
 val certificateTypeListBytes: list<certType> -> bytes
-val parseCertificateTypeList: bytes -> Result<list<certType>>
+val parseCertificateTypeList: bytes -> list<certType>
 val defaultCertTypes: bool -> cipherSuite -> list<certType>
 val distinguishedNameListBytes: list<string> -> bytes
 val parseDistinguishedNameList: bytes -> list<string> -> Result<list<string>>

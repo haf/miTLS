@@ -58,6 +58,11 @@ let config (servname : string) = {
 
     TLSInfo.sessionDBFileName = "sessionDBFile.bin"
     TLSInfo.sessionDBExpiry = Date.newTimeSpan 1 0 0 0 (* one day *)
+
+    (* DH parameters *)
+    TLSInfo.dhDBFileName = "dhparams-db.bin"
+    dhDefaultGroupFileName = "defaultDH.pem"
+    dhPQMinLength = TLSInfo.defaultConfig.dhPQMinLength
 }
 
 // ------------------------------------------------------------------------

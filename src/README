@@ -57,17 +57,21 @@ and enabled during type checking.
 * 3. Prerequisites
 
 In the following, the prerequisites for each supported platform are
-given. 
+given. In general, you need a running F# installation, see
+http://fsharp.org/ on how to get the most recent version of F#
+for your platform.
 
 ** 3.a. Microsoft Windows
 
+Either
+- Visual Studio 2013
+
+or
 - Cygwin, with the make utility installed
-- .NET version 4 or above
-- Visual F# 2.0
-- Power Pack for F# 2.0
+- .NET version 4.5 or above
+- Visual F# 3.1 or above
 
 ** 3.b. Linux, Mac OS X and other Un*ces
 
-- Mono framework, version 3.0.1 or above
-- F# open source edition, version 3.0 or above
+- Mono framework, version 3.4.0 or above; this includes F# 3.1.
 

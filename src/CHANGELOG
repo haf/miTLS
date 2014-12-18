@@ -1,3 +1,13 @@
+miTLS 0.8.0 2014-10-01
+  * TLS library
+    * Refactor some code to ease F* migration
+    * Rework DH group and element checking
+	  Efficient cache-based checks on groups
+	  Add checks for prime and group size
+    * Enable experimental implementation of extended master secret extension
+  * Project management
+    * Move to VS2013
+
 miTLS 0.7.0 2014-08-20
   * TLS library
     * Refactor handshake-related modules

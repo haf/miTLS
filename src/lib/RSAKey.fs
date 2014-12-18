@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module RSAKey
 
 open Bytes
@@ -30,14 +32,14 @@ type modulus  = bytes
 type exponent = bytes
 
 let gen () : (pk * sk) =
-    let csk, cpk = CoreACiphers.gen_key ()
-    let sk = {sk = csk}
-    let pk = {pk = cpk}
+    let csk, cpk = CoreACiphers.gen_key () in
+    let sk = {sk = csk} in
+    let pk = {pk = cpk} in
     Pi.assume(SK_PK(sk,pk));
     pk, sk
 
 let coerce (pk:pk) (csk:CoreACiphers.sk) =
-    let sk= {sk = csk}
+    let sk= {sk = csk} in
     Pi.assume(SK_PK(sk,pk));
     sk
 

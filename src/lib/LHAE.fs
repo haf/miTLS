@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module LHAE
 
 open Bytes
@@ -36,7 +38,7 @@ let GEN e =
     let a = e.aeAlg in
     match a with
     | MACOnly _ ->
-        let mk = MAC.GEN e
+        let mk = MAC.GEN e in
         (MACOnlyK(mk), MACOnlyK(mk))
     | MtE(_,_) ->
         let mk = MAC.GEN e in
@@ -48,7 +50,7 @@ let GEN e =
 
 let COERCE e rw b =
     // precondition: b is of the right length, so no need for a runtime checks here.
-    let a = e.aeAlg
+    let a = e.aeAlg in
     match a with
     | MACOnly _ ->
         let mk = MAC.COERCE e b in
@@ -82,7 +84,7 @@ let encrypt' (e:id) key data rg plain =
     let authEnc = e.aeAlg in
     match (authEnc,key) with
     | (MtE(encAlg,_), MtEK (ka,ke)) ->
-        match encAlg with
+        (match encAlg with
         | Stream_RC4_128 -> // stream cipher
             let plain   = Encode.mac e ka data rg plain in
             let (l,h) = rg in
@@ -90,12 +92,12 @@ let encrypt' (e:id) key data rg plain =
                 l <> h then
                 unexpected "[encrypt'] given an invalid input range"
             else
-                let (ke,res) = ENC.ENC e ke data rg plain
+                let (ke,res) = ENC.ENC e ke data rg plain in
                 (MtEK(ka,ke),res)
         | CBC_Stale(_) | CBC_Fresh(_) -> // block cipher
             let plain  = Encode.mac e ka data rg plain in
-            let (ke,res) = ENC.ENC e ke data rg plain
-            (MtEK(ka,ke),res)
+            let (ke,res) = ENC.ENC e ke data rg plain in
+            (MtEK(ka,ke),res))
     | (MACOnly _, MACOnlyK (ka)) ->
         let plain = Encode.mac e ka data rg plain in
         let (l,h) = rg in
@@ -124,7 +126,7 @@ let decrypt' e key data cipher =
     match (authEnc,key) with
     | (MtE(encAlg,macAlg), MtEK (ka,ke)) ->
         let macSize = macSize macAlg in
-        match encAlg with
+        (match encAlg with
         | Stream_RC4_128 -> // stream cipher
             if cl < macSize then
                 (*@ It is safe to return early, because we are branching
@@ -134,9 +136,9 @@ let decrypt' e key data cipher =
                 let rg = cipherRangeClass e cl in
                 let (ke,plain) = ENC.DEC e ke data cipher in
                 let nk = mteKey e Reader ka ke in
-                match Encode.verify e ka data rg plain with
+                (match Encode.verify e ka data rg plain with
                 | Error z -> Error z
-                | Correct(aeplain) -> correct(nk,rg,aeplain)
+                | Correct(aeplain) -> correct(nk,rg,aeplain))
         | CBC_Stale(alg) | CBC_Fresh(alg) -> // block cipher
             let ivL = ivSize e in
             let blockSize = blockSize alg in
@@ -149,32 +151,31 @@ let decrypt' e key data cipher =
                 let rg = cipherRangeClass e cl in
                 let (ke,plain) = ENC.DEC e ke data cipher in
                 let nk = mteKey e Reader ka ke in
-                match Encode.verify e ka data rg plain with
+                (match Encode.verify e ka data rg plain with
                 | Error z -> Error z
-                | Correct(aeplain) -> correct (nk,rg,aeplain)
+                | Correct(aeplain) -> correct (nk,rg,aeplain)))
     | (MACOnly macAlg, MACOnlyK (ka)) ->
         let macSize = macSize macAlg in
         if cl < macSize then
             let reason = perror __SOURCE_FILE__ __LINE__ "" in Error(AD_bad_record_mac, reason)
         else
             let rg = cipherRangeClass e cl in
-
-            let plain = Encode.plain e data cl cipher in
-            match Encode.verify e ka data rg plain with
+            let (plain,tag) = Encode.decodeNoPad_bytes e data rg cl cipher in
+            (match Encode.verify_MACOnly e ka data rg cl plain tag with
             | Error(z) -> Error(z)
-            | Correct(aeplain) -> correct (key,rg,aeplain)
+            | Correct(x) -> let rg,aeplain = x in correct (key,rg,aeplain))
     | (AEAD(encAlg,_), GCM(gcmState)) ->
         let minLen = aeadRecordIVSize encAlg + aeadTagSize encAlg in
         if cl < minLen then
             let reason = perror __SOURCE_FILE__ __LINE__ "" in Error(AD_bad_record_mac, reason)
         else
             let rg = cipherRangeClass e cl in
-            match AEAD_GCM.DEC e gcmState data rg cipher with
+            (match AEAD_GCM.DEC e gcmState data rg cipher with
             | Error z -> Error z
             | Correct (res) ->
                 let (newState,plain) = res in
                 let nk = gcmKey e Reader newState in
-                correct (nk,rg,plain)
+                correct (nk,rg,plain))
     | (_,_) -> unexpected "[decrypt'] incompatible ciphersuite-key given."
 
 #if ideal
@@ -197,17 +198,17 @@ let rec cmem (e:id) (ad:LHAEPlain.adata) (c:ENC.cipher) (xs: list<entry>) =
 
 let encrypt (e:id) key data rg plain =
   let (key,cipher) = encrypt' e key data rg plain in
-  #if ideal
+#if ideal
 
   if safeId  e then
     log := (e,data,rg,plain,cipher)::!log
-  else ()
-  #endif
+  else ();
+#endif
   (key,cipher)
 
 let decrypt (e:id) (key: LHAEKey) data (cipher: bytes) =
   let err = (AD_bad_record_mac,"") in
-  #if ideal
+#if ideal
   if safeId  e then
     match cmem e data cipher !log with
     | Some x ->
@@ -218,5 +219,5 @@ let decrypt (e:id) (key: LHAEKey) data (cipher: bytes) =
        correct (key,rg',p')
     | None   -> Error err
   else
-  #endif
+#endif
       decrypt' e key data cipher

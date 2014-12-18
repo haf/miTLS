@@ -10,6 +10,8 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
+#light "off"
+
 module Encode
 
 open Bytes
@@ -38,18 +40,65 @@ let payload (e:id) (rg:range) ad f =
   #endif
     LHAEPlain.repr e ad rg f
 
+let macPlain_bytes (e:id) (rg:range) ad b =
+    ad @| vlbytes 2 b
+
 let macPlain (e:id) (rg:range) ad f =
     let b = payload e rg ad f in
-    ad @| vlbytes 2 b
+    macPlain_bytes e rg ad b
+
+#if ideal
+type maconly_entry = id * LHAEPlain.adata * range * nat * bytes * bytes * LHAEPlain.plain * MAC.tag
+let maconly_log = ref ([]:list<maconly_entry>)
+let rec maconly_mem i ad cl pl text tag (xs:list<maconly_entry>) =
+    match xs with
+    | (i', ad', rg', cl', pl', text', p', tag')::_
+        when i=i' && ad=ad' && cl=cl' && pl=pl' && text=text' && tag=tag' -> let x = (rg',p') in Some x
+    | _::xs -> maconly_mem i ad cl pl text tag xs
+    | [] -> None
+#endif
 
 let mac e k ad rg plain =
     let plain = LHAEPlain.makeExtPad e ad rg plain in
     let text = macPlain e rg ad plain in
     let tag  = MAC.Mac e k text in
+#if ideal
+    (* For MACOnly ciphersuites where AuthId holds, we store the plain and
+     * the tag in the MACOnly log *)
+    let e_aealg = e.aeAlg in
+    (match (authId e, e_aealg) with
+    | (true,MACOnly(_)) ->
+        let tlen = targetLength e rg in
+        let pl = payload e rg ad plain in
+        maconly_log := (e,ad,rg,tlen,pl,text,plain,tag)::!maconly_log
+    | (_,_) -> ());
+#endif
     {plain = plain;
      tag = tag;
      ok = true
     }
+
+let verify_MACOnly (e:id) k ad rg (cl:nat) b tag =
+    let text = macPlain_bytes e rg ad b in
+    if MAC.Verify e k text tag then
+#if ideal
+        if authId e then
+            match maconly_mem e ad cl b text tag !maconly_log with
+            | Some(x) ->
+                let (rg',p') = x in
+                let p = LHAEPlain.widen e ad rg' p' in
+                let rg = rangeClass e rg' in
+                correct (rg,p)
+            | None ->
+                let reason = perror __SOURCE_FILE__ __LINE__ "" in
+                Error(AD_bad_record_mac,reason)
+        else
+#endif
+            let p = LHAEPlain.plain e ad rg b in
+            correct (rg,p)
+    else
+        let reason = perror __SOURCE_FILE__ __LINE__ "" in
+        Error(AD_bad_record_mac,reason)
 
 let verify (e:id) k ad rg plain : Result<LHAEPlain.plain> =
     let f = plain.plain in
@@ -79,7 +128,7 @@ let encodeNoPad (e:id) (tlen:nat) (rg:range) (ad:LHAEPlain.adata) data tag =
         h <> length b then
         Error.unexpected "[encodeNoPad] invoked on an invalid range."
     else
-    let payload = b @| tag
+    let payload = b @| tag in
     if length payload <> (tlen - ivSize e) then
         Error.unexpected "[encodeNoPad] Internal error."
     else
@@ -92,10 +141,10 @@ let encode (e:id) (tlen:nat) (rg:range) (ad:LHAEPlain.adata) data tag =
     let lb = length b in
     let lm = length tag in
     let ivL = ivSize e in
-    let pl = tlen - lb - lm - ivL
+    let pl = tlen - lb - lm - ivL in
     if pl > 0 && pl <= 256 then
 
-        let payload = b @| tag @| pad pl
+        let payload = b @| tag @| pad pl in
         if length payload <> tlen - ivL then
             Error.unexpected "[encode] Internal error."
         else
@@ -103,7 +152,7 @@ let encode (e:id) (tlen:nat) (rg:range) (ad:LHAEPlain.adata) data tag =
     else
         unexpected "[encode] Internal error."
 
-let decodeNoPad (e:id) (ad:LHAEPlain.adata) (rg:range) tlen pl =
+let decodeNoPad_bytes (e:id) (ad:LHAEPlain.adata) (rg:range) tlen pl =
     let plainLen = length pl in
     if plainLen <> (tlen - ivSize e) then
         Error.unreachable "[decodeNoPad] wrong target length given as input argument."
@@ -111,14 +160,17 @@ let decodeNoPad (e:id) (ad:LHAEPlain.adata) (rg:range) tlen pl =
     let macAlg = macAlg_of_id e in
     let maclen = macSize macAlg in
     let payloadLen = plainLen - maclen in
-    let (frag,tag) = Bytes.split pl payloadLen in
+    Bytes.split pl payloadLen
+
+let decodeNoPad (e:id) (ad:LHAEPlain.adata) (rg:range) tlen pl =
+    let frag,tag = decodeNoPad_bytes e ad rg tlen pl in
     let aeadF = LHAEPlain.plain e ad rg frag in
     {plain = aeadF;
      tag = tag;
      ok = true}
 
 let decode (e:id) (ad:LHAEPlain.adata) (rg:range) (tlen:nat) pl =
-    let a = e.aeAlg
+    let a = e.aeAlg in
     let macSize = macSize (macAlg_of_aeAlg a) in
     let fp = fixedPadSize e in
     let pLen = length pl in
@@ -127,7 +179,7 @@ let decode (e:id) (ad:LHAEPlain.adata) (rg:range) (tlen:nat) pl =
     let padlen = int_of_bytes padlenb in
     let padstart = pLen - padlen - fp in
     let macstart = pLen - macSize - padlen - fp in
-    let encAlg = encAlg_of_aeAlg a
+    let encAlg = encAlg_of_aeAlg a in
     match encAlg with
     | Stream_RC4_128 -> unreachable "[decode] invoked on stream cipher"
     | CBC_Stale(encAlg) | CBC_Fresh(encAlg) ->
@@ -188,11 +240,10 @@ let decode (e:id) (ad:LHAEPlain.adata) (rg:range) (tlen:nat) pl =
                 }
 
 let plain (e:id) ad tlen b =
-  let authEnc = e.aeAlg
+  let authEnc = e.aeAlg in
   let rg = cipherRangeClass e tlen in
   match authEnc with
-    | MtE(Stream_RC4_128,_)
-    | MACOnly _ ->
+    | MtE(Stream_RC4_128,_) ->
         decodeNoPad e ad rg tlen b
     | MtE(CBC_Stale(_),_)
     | MtE(CBC_Fresh(_),_) ->
@@ -200,7 +251,7 @@ let plain (e:id) ad tlen b =
     | _ -> unexpected "[Encode.plain] incompatible ciphersuite given."
 
 let repr (e:id) ad rg pl =
-  let authEnc = e.aeAlg
+  let authEnc = e.aeAlg in
   let lp = pl.plain in
   let tg = pl.tag in
   let tlen = targetLength e rg in
