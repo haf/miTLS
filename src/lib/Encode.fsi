@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -28,4 +28,7 @@ val plain: id -> LHAEPlain.adata -> nat -> bytes -> plain
 val repr:  id -> LHAEPlain.adata -> range -> plain -> bytes
 
 val mac: id -> MAC.key -> LHAEPlain.adata -> range -> LHAEPlain.plain -> plain
-val verify: id -> MAC.key -> LHAEPlain.adata -> range -> plain -> LHAEPlain.plain Result
+val verify: id -> MAC.key -> LHAEPlain.adata -> range -> plain -> Result<LHAEPlain.plain>
+#if ideal
+val widen: id -> LHAEPlain.adata -> range -> plain -> plain
+#endif

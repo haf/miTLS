@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -25,8 +25,9 @@ open RSAKey
     Except for RSA, no module should call RSAKey.repr_of_rsaskey. *)
 
 (*  Idealization strategy: to make sure that in the ideal world
-    no information about the (ideal) pre-master secret (pms) value is leaked,
-    we encrypt a dummy pms instead of the real pms.
+    no information about the (ideal) pre-master secret (pms) value
+    is leaked, we encrypt a dummy pms instead of the real pms.
+
     The ideal pms is stored into a table during
     idealized encryption and read from the table during idealized decryption.
     This is only done when the cryptography warrants idealization,
@@ -34,8 +35,9 @@ open RSAKey
 
     Taken on its own our assumption would be somewhat related to
     RCCA security: http://eprint.iacr.org/2003/174.pdf. This would however still be
-    too strong an assumption for PKCS1. We weaken the assumption by allowing any attacker to access
-    the RSA module only through the CRE module. This has two effects:
+    too strong an assumption for PKCS1. We weaken the assumption by
+    allowing any attacker to accessthe RSA module only through the
+    KEF module. This has two effects:
 
      i) ideal PMS are sampled rather than chosen by the adversary.
     ii) only the hash values of PMS are made available to the adversary. *)
@@ -47,9 +49,9 @@ type entry = pk * ProtocolVersion * PMS.rsarepr *  PMS.rsapms
 let log = ref []
 #endif
 
-(*  Encrypts a pms value under a particular key and for a proposed client version.
-    We require that every ideal pms be encrypted only once
-    (in TLS, by the client immediately after generation).
+(*  Encrypts a pms value under a particular key and for a proposed
+    client version. We require that every ideal pms be encrypted
+    only once (in TLS, by the client immediately after generation).
     Otherwise we would require a stronger cryptographic assumption.
     The ideal functionality would change to reuse the corresponding
     dummy_pms value for reused ideal pms.
@@ -67,9 +69,6 @@ let encrypt pk cv pms =
         PMS.leakRSA pk cv pms
     //#end-ideal1
     let ciphertext = CoreACiphers.encrypt_pkcs1 (RSAKey.repr_of_rsapkey pk) plaintext
-    #if ideal
-    Pi.assume(PMS.EncryptedRSAPMS(pk,cv,pms,ciphertext))
-    #endif
     ciphertext
 
 (*  Decrypts a ciphertext concretely to obtain a pms value.
@@ -121,7 +120,7 @@ let real_decrypt dk si cv cvCheck ciphertext =
 //#end-real_decrypt
 
 #if ideal
-let rec assoc (pk:RSAKey.pk) (cv:ProtocolVersion) (dummy_pms:bytes) (pmss:entry list) =
+let rec assoc (pk:RSAKey.pk) (cv:ProtocolVersion) (dummy_pms:bytes) (pmss:list<entry>) =
     match pmss with
     | [] -> None
     | (pk',cv',dummy_pms',ideal_pms)::mss' when pk=pk' && cv=cv' && dummy_pms=dummy_pms' -> Some(ideal_pms)

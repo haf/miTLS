@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -23,19 +23,19 @@ open DataStream
 type Connection = Dispatch.Connection
 
 type ioresult_i =
-    | ReadError of alertDescription option * string
+    | ReadError of option<alertDescription> * string
     | Close     of Tcp.NetworkStream
     | Fatal     of alertDescription
     | Warning   of nextCn * alertDescription
     | CertQuery of nextCn * query * bool
-    | Handshaken of Connection
+    | CompletedFirst  of Connection
+    | CompletedSecond of Connection
     | Read      of nextCn * msg_i
     | DontWrite of Connection
 
 type ioresult_o =
-    | WriteError    of alertDescription option * string
+    | WriteError    of option<alertDescription> * string
     | WriteComplete of nextCn
-    | WritePartial  of nextCn * msg_o
     | MustRead      of Connection
 
 (* Event-driven interface *)

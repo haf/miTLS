@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -16,9 +16,9 @@ open Bytes
 open TLSConstants
 open TLSInfo
 
-val verifyData: prfAlg -> bytes -> Role -> bytes -> bytes
-val extract: creAlg -> bytes -> bytes -> int -> bytes
-val kdf: prfAlg -> bytes -> bytes -> int -> bytes
+val verifyData: vdAlg -> bytes -> Role -> bytes -> bytes
+val extract: kefAlg -> bytes -> bytes -> int -> bytes
+val kdf: kdfAlg -> bytes -> bytes -> int -> bytes
 
 (* SSL-specific certificate verify *)
 

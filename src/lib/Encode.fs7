@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -20,6 +20,7 @@ open Error
 open TLSError
 open TLSInfo
 open TLSConstants
+open TLSExtensions
 open Range
 
 //------------------------------------------------------------------------------------------------------
@@ -33,18 +34,21 @@ private type (;e:id,ad:(;e)LHAEPlain.adata,rg:range) plain =
 	  ok   : b:bool { EncAlg(e) = Stream_RC4_128 => b = true }
 	  (* true iff decoding succeeded; always true with RC4. *) }
 
+val widen: i:id -> ad:(;i)LHAEPlain.adata -> r:range ->
+  f :(;i,ad,r)plain ->
+  f':(;i,ad,CipherRangeClass(i,TargetLength(i,r))) plain
+    //{Payload(i,B(ad),r,f) = Payload(i,B(ad),RangeClass(i,r),f')}
+
 function val PlainLength: id * nat -> nat
 definition !e,tlen.
   tlen >= IVSize(e) =>
   PlainLength(e,tlen) = tlen - IVSize(e)
 
 ask !e,tlen,mac.
-     tlen >= 0 /\
-     e.aeAlg = MACOnly(mac)  => PlainLength(e,tlen) = tlen
+     ( tlen >= 0 /\ e.aeAlg = MACOnly(mac) ) => PlainLength(e,tlen) = tlen
 
 ask !e,tlen,mac.
-     tlen >= 0 /\
-     e.aeAlg = MtE(Stream_RC4_128,mac)  => PlainLength(e,tlen) = tlen
+     ( tlen >= 0 /\ e.aeAlg = MtE(Stream_RC4_128,mac) )  => PlainLength(e,tlen) = tlen
 
 //------------------------------------------------------------------------------------------------------
 // Interface towards LHAE
@@ -81,44 +85,23 @@ predicate val Encoded: 'e * 'a * 'b * 'c * 'd -> bool
 
 private val pad: l:int { 0 < l /\ l <= 256 } -> b:bytes{Length(b) = l}
 
-// for typing decode
-private ask !e,tlen.
-  (((?alg,mac. e.aeAlg  = MtE(CBC_Stale(alg),mac)) \/
-    (?alg,mac. e.aeAlg  = MtE(CBC_Fresh(alg),mac))) /\
-  (tlen - IVSize(e) - MacKeySize(MacAlg(e)) - 1 > 255)) =>
-  CipherRangeClass(e,tlen) =
-  (tlen - IVSize(e) - MacKeySize(MacAlg(e)) - 1 - 255,
-   tlen - IVSize(e) - MacKeySize(MacAlg(e)) - 1)
+val encode:
+    e:id{not SafeId(e) /\ (?alg,mac. e.aeAlg  = MtE(CBC_Stale(alg),mac) \/ e.aeAlg  = MtE(CBC_Fresh(alg),mac))} ->
+    tlen:nat{tlen <= max_TLSCipher_fragment_length} ->
+    rg:range{tlen = TargetLength(e,rg)} ->
+    ad:(;e) LHAEPlain.adata ->
+    pl:(;e,ad,rg) LHAEPlain.plain ->
+    tag:(;e) MAC.tag ->
+    (;PlainLength(e,tlen))lbytes
 
-private ask !e,tlen.
-  (((?alg,mac. e.aeAlg  = MtE(CBC_Stale(alg),mac)) \/
-    (?alg,mac. e.aeAlg  = MtE(CBC_Fresh(alg),mac))) /\
-  (tlen - IVSize(e) - MacKeySize(MacAlg(e)) - 1 >= 0) /\
-  (tlen - IVSize(e) - MacKeySize(MacAlg(e)) - 1 <= 255)) =>
-  CipherRangeClass(e,tlen) =
-  (0,
-   tlen - IVSize(e) - MacKeySize(MacAlg(e)) - 1)
-
-val encode: e:id{not SafeId(e) /\ (?alg,mac. e.aeAlg  = MtE(CBC_Stale(alg),mac) \/
-	  e.aeAlg  = MtE(CBC_Fresh(alg),mac))} ->
-    tlen:nat{tlen <= max_TLSCipher_fragment_length} -> rg:range{tlen = TargetLength(e,rg)} ->
-	ad:(;e) LHAEPlain.adata -> pl:(;e,ad,rg) LHAEPlain.plain -> tag:(;e) MAC.tag ->
-	(;PlainLength(e,tlen))lbytes
 val decode: e:id{not AuthId(e) /\ (?alg,mac. e.aeAlg  = MtE(CBC_Stale(alg),mac) \/
 	  e.aeAlg  = MtE(CBC_Fresh(alg),mac))} ->
-	ad:(;e) LHAEPlain.adata -> rg:range ->
-	tlen:nat{tlen - IVSize(e) >= ( MacKeySize(MacAlg(e)) + 1) /\
+	ad:(;e) LHAEPlain.adata ->
+	rg:range ->
+	tlen:nat{tlen - IVSize(e) >= ( MacKeySize(MacAlg(e)) + FixedPadSize(e,()) ) /\
 	rg = CipherRangeClass(e,tlen)} ->
 	(;PlainLength(e,tlen))lbytes ->
 	ps:(;e,ad,rg)plain
-
-private ask !e,tlen.
-  (((?mac. e.aeAlg  = MACOnly(mac)) \/
-   (?mac. e.aeAlg  = MtE(Stream_RC4_128,mac))) /\
-  (tlen >= MacKeySize(MacAlg(e)))) =>
-    CipherRangeClass(e,tlen) =
-    (tlen - MacKeySize(MacAlg(e)),
-     tlen - MacKeySize(MacAlg(e)))
 
 val encodeNoPad: e:id{not SafeId(e) /\ (?mac. e.aeAlg  = MACOnly(mac) \/
 	  e.aeAlg  = MtE(Stream_RC4_128,mac))} ->
@@ -133,10 +116,27 @@ val decodeNoPad: e:id{not AuthId(e) /\ (?mac. e.aeAlg  = MACOnly(mac) \/
 	(;e,ad,rg)plain
 
 function val MinTlen: id -> nat
-definition !id,mac.     id.aeAlg = MACOnly(mac)            => MinTlen(id) = MacKeySize(mac)
-definition !id,mac.     id.aeAlg = MtE(Stream_RC4_128,mac) => MinTlen(id) = MacKeySize(mac)
-definition !id,alg,mac. id.aeAlg = MtE(CBC_Fresh(alg),mac) => MinTlen(id) = IVSize(id) + MacKeySize(mac) + 1
-definition !id,alg,mac. id.aeAlg = MtE(CBC_Stale(alg),mac) => MinTlen(id) = IVSize(id) + MacKeySize(mac) + 1
+definition !id,mac.     id.aeAlg = MACOnly(mac)            => MinTlen(id) = MacSize(mac)
+definition !id,mac.     id.aeAlg = MtE(Stream_RC4_128,mac) => MinTlen(id) = MacSize(mac)
+definition !id,enc,mac. id.aeAlg = MtE(CBC_Fresh(enc),mac) => MinTlen(id) = IVSize(id) + MacSize(mac) + FixedPadSize(id,())
+definition !id,enc,mac. id.aeAlg = MtE(CBC_Stale(enc),mac) => MinTlen(id) = IVSize(id) + MacSize(mac) + FixedPadSize(id,())
+
+(*
+ask !id,enc,mac.
+  ( id.aeAlg = MtE(CBC_Stale(enc),mac) \/
+    id.aeAlg = MtE(CBC_Fresh(enc),mac) ) => MinTlen(id) >= BlockSize(enc)
+ *)
+
+// This property is needed to prove the first ask below;
+// it follows by case analysis on all enc/mac algorithms of TLS (see TLSConstants.fs7)
+
+private theorem !e,h. BlockSize(e) <= MacSize(h)
+
+ask !id,enc,mac.
+    id.aeAlg = MtE(CBC_Stale(enc),mac) => MinTlen(id) >= BlockSize(enc)
+
+ask !id,enc,mac.
+    id.aeAlg = MtE(CBC_Fresh(enc),mac) => MinTlen(id) >= BlockSize(enc)
 
 val plain: e:id{not AuthId(e)} ->
   ad:(;e)LHAEPlain.adata -> tlen:nat{tlen <= max_TLSCipher_fragment_length /\ tlen >= MinTlen(e)} ->
@@ -153,5 +153,5 @@ val repr:  e:id{not SafeId(e)} ->
 //------------------------------------------------------------------------------------------------------
 
 private definition !e,pl. MAC.Msg(e,pl) <=>
-     (SafeId(e) \/ (?ad,r,f. Length(ad) = 8 + StatefulPlain.ADLength(e) /\
-	  B(pl) = MACPlain(e,r,B(ad),f)))
+     (SafeId(e) \/ (?ad,r,f. Length(ad) = 8 + StatefulPlain.ADLength(e)
+                          /\ B(pl) = MACPlain(e,r,B(ad),f)))

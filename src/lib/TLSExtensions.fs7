@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -12,61 +12,50 @@
 
 module TLSExtensions
 
+(* Formatting and parsing support for the protocol extensions
+   exchanged in the first two messages of the handshake *)
+
 open Bytes
 open Error
 open TLSError
 open TLSConstants
+open TLSInfo
 
-type extensionType =
-    | HExt_renegotiation_info
+// Following types used only in Handshake
+type clientExtension
+type serverExtension
 
-function val ExtensionTypeBytes: extensionType -> cbytes
-private definition ExtensionTypeBytes(HExt_renegotiation_info) = [|0xFFuy; 0x01uy|]
+// Client side
+val clientExtensionsBytes: clientExtension list -> bytes
+val prepareClientExtensions: config -> ConnectionInfo -> cVerifyData -> sessionHash option -> clientExtension list
+val parseServerExtensions: bytes -> (serverExtension list) Result
+val negotiateClientExtensions: clientExtension list -> serverExtension list -> bool -> cipherSuite -> negotiatedExtensions Result
 
-val extensionTypeBytes: et:extensionType -> b:bytes{B(b)=ExtensionTypeBytes(et)}
-val parseExtensionType: b:bytes -> (et:extensionType{B(b)=ExtensionTypeBytes(et)}) Result
-val isExtensionType: et:extensionType -> ext:(extensionType * bytes) ->
-	b:bool{b = true => (?et',d. ext=(et',d) /\ et = et')}
+// Server side
+val serverExtensionsBytes: serverExtension list -> bytes
+val negotiateServerExtensions: clientExtension list -> config -> cipherSuite -> (cVerifyData * sVerifyData) -> sessionHash option -> (serverExtension list * negotiatedExtensions)
+val parseClientExtensions: bytes -> cipherSuites -> (clientExtension list) Result
 
-function val ExtensionBytes: extensionType * cbytes -> cbytes
-private definition !et,b.
-	ExtensionBytes(et,b) = ExtensionTypeBytes(et) @| VLBytes(2,b)
-predicate ContainsExtensions of cbytes * (extensionType * bytes) list
+// ------------------------------------------------------
+// The rest is extension-specific
 
-private definition !b,l. ContainsExtensions(b,l)
+// Secure Renegotiation Information
 
-val extensionBytes: et:extensionType -> d:bytes -> b:bytes{B(b)=ExtensionBytes(et,d)}
-val consExt: extensionType * bytes -> (extensionType * bytes) list -> (extensionType * bytes) list
-val parseExtensionList: b:bytes -> cur:(extensionType * bytes) list ->
-	(res:(extensionType * bytes) list{ContainsExtensions(B(b),res)}) Result
+val checkClientRenegotiationInfoExtension: config -> clientExtension list -> cVerifyData -> bool
+val checkServerRenegotiationInfoExtension: config -> serverExtension list -> cVerifyData -> sVerifyData -> bool
 
-val renegotiationInfoExtensionBytes: vd:bytes ->
-	b:bytes{B(b)=ExtensionBytes(HExt_renegotiation_info,VLBytes(1,B(vd)))}
-val parseRenegotiationInfoExtension: b:bytes ->
-	(vd:bytes{B(b)=VLBytes(1,B(vd))}) Result
+// Secure Resumption Info (our proposal)
 
-function val ExtensionsBytes: cbytes -> cbytes
-private definition !b. ExtensionsBytes(b) = VLBytes(2,b)
-val extensionsBytes: en:bool -> vd:bytes ->
-	b:bytes{(en = true /\ B(b) = ExtensionsBytes(ExtensionBytes(HExt_renegotiation_info,VLBytes(1,B(vd)))) ) \/
-			(en = false /\ b = empty_bytes)}
+val checkClientResumptionInfoExtension:    config -> clientExtension list -> sessionHash -> bool option
+val checkServerResumptionInfoExtension:    config -> serverExtension list -> sessionHash -> bool
 
-val parseExtensions: b:bytes -> (res:(extensionType * bytes) list
-	{(b = empty_bytes /\ res = [] ) \/
-	 (b <> empty_bytes /\ ?ext. B(b) = VLBytes(2,ext) /\ ContainsExtensions(ext,res) )
-	}) Result
+val hasExtendedMS: negotiatedExtensions -> bool
 
-val check_reneg_info: got:bytes -> exp:bytes ->
-	b:bool{b=true => (?d. B(got) = VLBytes(1,d) /\ exp = d)}
+predicate HasExtendedPadding of id
+val hasExtendedPadding: id:id -> b:bool{b = true <=> HasExtendedPadding(id)}
 
-val checkClientRenegotiationInfoExtension:
-	(extensionType * bytes) list -> cipherSuites -> bytes -> bool
+// Signature and Hash Algorithms
 
-val inspect_ServerHello_extensions:
-	(extensionType * bytes) list -> bytes ->
-		unit Result
-
-(* SignatureAndHashAlgorithm parsing functions *)
 function val SigHashAlgBytes: 'a  -> cbytes
 private definition !s,h. SigHashAlgBytes((s,h)) = HashAlgBytes(s) @| SigAlgBytes(h)
 
@@ -76,8 +65,10 @@ val parseSigHashAlg: b:bytes -> (a:Sig.alg{B(b)=SigHashAlgBytes(a)}) Result
 function val SigHashAlgsBytes: Sig.alg list -> cbytes
 val sigHashAlgListBytes: al:Sig.alg list -> b:bytes{B(b)=SigHashAlgsBytes(al)}
 val parseSigHashAlgList: b:bytes -> (al:Sig.alg list{B(b)=SigHashAlgsBytes(al)}) Result
+
 function val DefaultSigHashAlgs: ProtocolVersion * cipherSuite -> Sig.alg list
 val default_sigHashAlg: pv:ProtocolVersion -> cs:cipherSuite -> al:Sig.alg list{al=DefaultSigHashAlgs(pv,cs)}
+
 val sigHashAlg_contains: Sig.alg list -> Sig.alg -> bool
 val cert_type_list_to_SigHashAlg: certType list -> ProtocolVersion -> Sig.alg list
 val cert_type_list_to_SigAlg: certType list -> sigAlg list

@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -43,6 +43,7 @@ let config = {
 
     (* Common *)
     TLSInfo.safe_renegotiation = true
+    TLSInfo.safe_resumption = false
     TLSInfo.server_name = "RPC server"
     TLSInfo.client_name = "RPC client"
 
@@ -64,7 +65,7 @@ let response_bytes nonce r = nonce @| (padmsg r)
 let service = fun r -> r
 
 type DrainResult =
-| DRError    of alertDescription option * string
+| DRError    of option<alertDescription> * string
 | DRClosed   of Tcp.NetworkStream
 | DRContinue of Connection
 
@@ -81,22 +82,33 @@ let rec drainMeta = fun conn ->
         | Close(s) -> DRClosed(s)
         | Fatal(e) -> DRError(Some(e),"")
         | Warning(conn,_) -> DRContinue conn
-        | Handshaken (conn) -> DRContinue conn
+        | CompletedFirst  (conn)
+        | CompletedSecond (conn) -> DRContinue conn
         | DontWrite conn -> drainMeta conn
         | _ -> DRError(None,perror __SOURCE_FILE__ __LINE__ "Internal TLS error")
     else
         refuse conn q; DRError(None,"")
-  | Handshaken conn              -> DRContinue conn
+  | CompletedFirst conn
+  | CompletedSecond conn         -> DRContinue conn
   | DontWrite  conn              -> drainMeta conn
   | Read       (conn, _)         ->
         ignore (TLS.full_shutdown conn)
         DRError (None,perror __SOURCE_FILE__ __LINE__ "Internal TLS error")
 
 let rec sendMsg = fun conn rg msg ->
-    match TLS.write conn (rg, msg) with
+    let rg0,rg1 = DataStream.splitRange (TLS.getEpochOut conn) rg in
+    let msg_o,rem =
+        if rg0 = rg then
+            msg,None
+        else
+            let msg0,msg1 = DataStream.split (TLS.getEpochOut conn) (TLS.getOutStream conn) rg0 rg1 msg in
+            msg0, Some(msg1)
+    match TLS.write conn (rg0, msg_o) with
     | WriteError    (ad,err)          -> None
-    | WriteComplete conn              -> Some conn
-    | WritePartial  (conn, (rg, msg)) -> sendMsg conn rg msg
+    | WriteComplete conn              ->
+        match rem with
+        | None -> Some conn
+        | Some(msg1) -> sendMsg conn rg1 msg1
     | MustRead      conn              ->
         match drainMeta conn with
         | DRError    _    -> None
@@ -114,12 +126,14 @@ let recvMsg = fun conn ->
             if advice then
                 match authorize conn q with
                 | Warning (conn,_)
-                | Handshaken conn
+                | CompletedFirst conn
+                | CompletedSecond conn
                 | DontWrite conn   -> doit conn buffer
                 | _ -> None
             else
                 refuse conn q; None
-          | Handshaken conn              -> doit conn buffer
+          | CompletedFirst conn
+          | CompletedSecond conn         -> doit conn buffer
           | DontWrite  conn              -> doit conn buffer
           | Read       (conn, (r, d))    ->
                 let ki     = Dispatch.getEpochIn  conn in

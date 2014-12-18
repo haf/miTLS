@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -96,7 +96,8 @@ let tk_repr (e : epoch) (s : stream) (u : username) (tk : token) : delta =
     if Bytes.length der > MaxTkReprLen then
         Error.unexpected "PwToken.tk_repr: token too large"
     else
-        DataStream.createDelta (e) s (0, MaxTkReprLen) der
+        let rg = (0, MaxTkReprLen) in
+        DataStream.createDelta e s rg der
 
 // ------------------------------------------------------------------------
 let tk_plain (e : epoch) (s : stream) (r : range) (delta : delta) : (username * token) option =
@@ -121,7 +122,8 @@ let rp_repr (e : epoch) (s : stream) (b : bool) : delta =
     if Bytes.length bytes > MaxTkReprLen then
         Error.unexpected "PwToken.rp_repr: token too large"
     else
-        DataStream.createDelta (e) s (0, MaxTkReprLen) bytes
+        let rg = (0, MaxTkReprLen) in
+        DataStream.createDelta (e) s rg bytes
 
 // ------------------------------------------------------------------------
 let rp_plain (e : epoch) (s : stream) (r : range) (d : delta) : bool =

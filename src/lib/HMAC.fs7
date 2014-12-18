@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -34,7 +34,7 @@ private val HMACVERIFY: hashAlg -> key -> data -> mac -> bool
 
 val MAC:
   a:macAlg -> k:key {Length(k)=MacKeySize(a)} ->
-  data -> t:mac {Length(t)=MacKeySize(a)}
+  data -> t:mac {Length(t)=MacSize(a)}
 val MACVERIFY:
   a:macAlg -> k:key {Length(k)=MacKeySize(a)} ->
-  data -> t:mac {Length(k)=MacKeySize(a)} -> bool
+  data -> t:mac {Length(k)=MacSize(a)} -> bool

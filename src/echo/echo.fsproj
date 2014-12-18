@@ -25,7 +25,7 @@
     <WarningLevel>3</WarningLevel>
     <PlatformTarget>x86</PlatformTarget>
     <DocumentationFile>bin\Debug\echo.XML</DocumentationFile>
-    <StartArguments>--address 127.0.0.1 --port 6000 --ciphers TLS_RSA_WITH_AES_128_CBC_SHA --tlsversion TLS_1p2 --sessionDB-dir sessionDB --server-name rsa.cert-01.mitls.org</StartArguments>
+    <StartArguments>--address 127.0.0.1 --port 6000 --ciphers TLS_RSA_WITH_NULL_MD5 --tlsversion SSL_3p0 --sessionDB-dir "C:\cygwin\tmp\tmpbA7lbx\client" --server-name rsa.cert-01.mitls.org --client</StartArguments>
     <StartWorkingDirectory>
     </StartWorkingDirectory>
   </PropertyGroup>
@@ -38,8 +38,9 @@
     <WarningLevel>3</WarningLevel>
     <PlatformTarget>x86</PlatformTarget>
     <DocumentationFile>bin\Release\echo.XML</DocumentationFile>
-    <StartArguments>--address 127.0.0.1 --port 6000 --ciphers TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA --tlsversion SSL_3p0 --sessionDB-dir dbdir --server-name dsa.cert-01.mitls.org]</StartArguments>
-    <StartWorkingDirectory>Z:\Cvk\samples\protocols\tls\rpc\</StartWorkingDirectory>
+    <StartArguments>--address 127.0.0.1 --port 6000 --ciphers TLS_RSA_WITH_NULL_MD5 --tlsversion SSL_3p0 --sessionDB-dir C:\cygwin\tmp\tmphH2wDb\client --server-name rsa.cert-01.mitls.org --client</StartArguments>
+    <StartWorkingDirectory>
+    </StartWorkingDirectory>
   </PropertyGroup>
   <Import Project="$(MSBuildExtensionsPath32)\FSharp\1.0\Microsoft.FSharp.Targets" Condition="!Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
   <Import Project="$(MSBuildExtensionsPath32)\..\Microsoft F#\v4.0\Microsoft.FSharp.Targets" Condition=" Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />

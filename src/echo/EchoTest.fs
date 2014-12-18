@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -61,20 +61,25 @@ let parse_cmd () =
     let myname   = Path.GetFileNameWithoutExtension(assembly.Location)
 
     let defaultCS   = [ TLSConstants.TLS_DHE_RSA_WITH_AES_128_CBC_SHA;
-                        TLSConstants.TLS_RSA_WITH_AES_128_CBC_SHA]
-    let defaultVer  = TLSConstants.TLS_1p0
+                        TLSConstants.TLS_RSA_WITH_AES_128_CBC_SHA;
+                        TLSConstants.TLS_RSA_WITH_AES_128_GCM_SHA256;
+                        TLSConstants.TLS_DHE_RSA_WITH_AES_128_GCM_SHA256;
+                        TLSConstants.TLS_RSA_WITH_RC4_128_SHA]
+    let defaultMinVer  = TLSConstants.SSL_3p0
+    let defaultMaxVer  = TLSConstants.TLS_1p2
     let defaultSN   = "mitls.example.org"
     let defaultCN   = None
     let defaultPort = 6000
     let defaultDB   = "sessionDB"
 
     let options : EchoImpl.options ref = ref {
-        ciphersuite = defaultCS;
-        tlsversion  = defaultVer;
-        servername  = defaultSN;
-        clientname  = defaultCN;
-        localaddr   = IPEndPoint(IPAddress.Loopback, defaultPort);
-        sessiondir  = Path.Combine(mypath, defaultDB); }
+        ciphersuite   = defaultCS;
+        tlsminversion = defaultMinVer;
+        tlsmaxversion = defaultMaxVer;
+        servername    = defaultSN;
+        clientname    = defaultCN;
+        localaddr     = IPEndPoint(IPAddress.Loopback, defaultPort);
+        sessiondir    = Path.Combine(mypath, defaultDB); }
 
     let isclient = ref false
 
@@ -117,7 +122,7 @@ let parse_cmd () =
     let o_version (version : string) =
         match parse_version version with
         | None -> raise (ArgError (sprintf "invalid TLS version: `%s'" version))
-        | Some version -> options := { !options with tlsversion = version }
+        | Some version -> options := { !options with tlsmaxversion = version; tlsminversion = version }
 
     let o_client_name (name : string) =
         options := { !options with clientname = Some name }
@@ -143,7 +148,7 @@ let parse_cmd () =
             "--port"         , ArgType.Int    o_port       , sprintf "\t\tserver port (default %d)" defaultPort
             "--address"      , ArgType.String o_address    , "\tserver address (default localhost)"
             "--ciphers"      , ArgType.String o_ciphers    , sprintf "\t\t,-separated ciphers list (default %s)" (String.Join(",", defaultCS))
-            "--tlsversion"   , ArgType.String o_version    , sprintf "\t\tTLS version to accept / propose (default %A)" defaultVer
+            "--tlsversion"   , ArgType.String o_version    , sprintf "\t\tTLS version to use -- strict (default any supported version)"
             "--client-name"  , ArgType.String o_client_name, "\tTLS client name (default None, anonymous client)"
             "--server-name"  , ArgType.String o_server_name, (sprintf "\tTLS server name (default: %s)" defaultSN)
             "--list"         , ArgType.Unit   o_list       , "\t\t\tPrint supported version/ciphers and exit"

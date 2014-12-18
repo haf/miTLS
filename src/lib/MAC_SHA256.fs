@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -28,8 +28,8 @@ let a = MA_HMAC(SHA256)
 
 #if ideal // We maintain a table of MACed plaintexts
 type entry = id * text * tag
-let log:entry list ref=ref []
-let rec tmem (e:id) (t:text) (xs: entry list) =
+let log:ref<list<entry>> =ref []
+let rec tmem (e:id) (t:text) (xs: list<entry>) =
   match xs with
       [] -> false
     | (e',t',m)::res when e = e' && t = t' -> true

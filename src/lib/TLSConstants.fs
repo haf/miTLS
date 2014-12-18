@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -47,9 +47,9 @@ type macAlg =
     | MA_SSLKHASH of hashAlg // MD5(SHA1(...))
 
 type sigAlg =
-  | SA_RSA
-  | SA_DSA
-  | SA_ECDSA
+    | SA_RSA
+    | SA_DSA
+    | SA_ECDSA
 
 type sigHashAlg   = sigAlg * hashAlg
 
@@ -58,7 +58,6 @@ let sigAlgBytes sa =
     | SA_RSA   -> (abyte 1uy)
     | SA_DSA   -> (abyte 2uy)
     | SA_ECDSA -> (abyte 3uy)
-
 let parseSigAlg b =
     match cbyte b with
     | (1uy) -> correct SA_RSA
@@ -189,10 +188,11 @@ type cipherSuite =
     | OnlyMACCipherSuite of kexAlg * hashAlg
     | SCSV of SCSVsuite
 
-type cipherSuites = cipherSuite list
+type cipherSuites = list<cipherSuite>
 
-type Compression =
+type PreCompression =
     | NullCompression
+type Compression = PreCompression
 
 let parseCompression b =
     match cbyte b with
@@ -399,7 +399,7 @@ let consCipherSuites (cs:cipherSuite) (css:cipherSuites) = cs::css
 // called by the server handshake;
 // ciphersuites that we do not understand are parsed,
 // but not added to the list, and thus will be ignored by the server
-let rec parseCipherSuites b:cipherSuites Result =
+let rec parseCipherSuites b:Result<cipherSuites> =
     if length b > 1 then
         let (b0,b1) = split b 2
         match parseCipherSuites b1 with
@@ -444,6 +444,11 @@ let isRSACipherSuite cs =
     | OnlyMACCipherSuite ( RSA, _ ) -> true
     | _ -> false
 
+let isOnlyMACCipherSuite cs =
+    match cs with
+    | OnlyMACCipherSuite (_,_) -> true
+    | _ -> false
+
 let sigAlg_of_ciphersuite cs =
     match cs with
     | CipherSuite ( RSA, _ ) | OnlyMACCipherSuite( RSA, _ ) (* | CipherSuite(ECDHE_RSA,_) *)
@@ -452,23 +457,23 @@ let sigAlg_of_ciphersuite cs =
     (* | CipherSuite(ECDHE_ECDSA,_) -> SA_ECDSA *)
     | _ -> unexpected "[sigAlg_of_ciphersuite] invoked on a worng ciphersuite"
 
-let contains_TLS_EMPTY_RENEGOTIATION_INFO_SCSV (css: cipherSuite list) =
+let contains_TLS_EMPTY_RENEGOTIATION_INFO_SCSV (css: list<cipherSuite>) =
 
     List.memr css (SCSV (TLS_EMPTY_RENEGOTIATION_INFO_SCSV))
 
 type prflabel = bytes
 let extract_label = utf8 "master secret"
+let extended_extract_label = utf8 "extended master secret"
 let kdf_label     = utf8 "key expansion"
 
-type prfAlg' =
-  | CRE_SSL3_nested        // MD5(SHA1(...)) for extraction and keygen
-  | CRE_TLS_1p01 of prflabel          // MD5 xor SHA1
-  | CRE_TLS_1p2 of prflabel * macAlg  // typically SHA256 but may depend on CS
+type prePrfAlg =
+  | PRF_SSL3_nested         // MD5(SHA1(...)) for extraction and keygen
+  | PRF_SSL3_concat         // MD5 @| SHA1    for VerifyData tags
+  | PRF_TLS_1p01 of prflabel          // MD5 xor SHA1
+  | PRF_TLS_1p2 of prflabel * macAlg  // typically SHA256 but may depend on CS
 
-type creAlg = prfAlg'
-
-type prfAlg = ProtocolVersion * cipherSuite
-type kdfAlg = ProtocolVersion * cipherSuite
+type kefAlg = prePrfAlg
+type kdfAlg = prePrfAlg
 type vdAlg = ProtocolVersion * cipherSuite
 
 let verifyDataLen_of_ciphersuite (cs:cipherSuite) =
@@ -500,13 +505,18 @@ let verifyDataHashAlg_of_ciphersuite (cs:cipherSuite) =
     | NullCipherSuite -> unexpected "[verifyDataHashAlg_of_ciphersuite] invoked on an invalid ciphersuite"
     | SCSV (_)        -> unexpected "[verifyDataHashAlg_of_ciphersuite] invoked on an invalid ciphersuite"
 
+let sessionHashAlg pv cs =
+    match pv with
+    | SSL_3p0 | TLS_1p0 | TLS_1p1 -> MD5SHA1
+    | TLS_1p2 -> verifyDataHashAlg_of_ciphersuite cs
+
 let tlsMacAlg alg pv =
-  match pv with
+    match pv with
     | SSL_3p0 -> MA_SSLKHASH(alg)
     | TLS_1p0 | TLS_1p1 | TLS_1p2 -> MA_HMAC(alg)
 
 let tlsEncAlg alg pv =
-  match pv with
+    match pv with
     | SSL_3p0 | TLS_1p0 ->
        (match alg with
           | RC4_128 -> Stream_RC4_128
@@ -535,12 +545,12 @@ let aeAlg cs pv =
     | _ -> unexpected "[aeAlg] invoked on an invalid ciphersuite"
 
 let encAlg_of_aeAlg ae =
-  match ae with
+    match ae with
     | MtE(e,m) -> e
     | _ -> unexpected "[encAlg_of_ciphersuite] inovked on an invalid ciphersuite"
 
 let macAlg_of_aeAlg ae =
-  match ae with
+    match ae with
     | MACOnly(alg) -> alg
     | MtE(_,alg) -> alg
     | _ -> unexpected "[macAlg_of_ciphersuite] invoked on an invalid ciphersuite"
@@ -600,7 +610,7 @@ type cipherSuiteName =
     | TLS_DH_anon_WITH_AES_128_GCM_SHA256
     | TLS_DH_anon_WITH_AES_256_GCM_SHA384
 
-let cipherSuites_of_nameList (nameList: cipherSuiteName list) =
+let cipherSuites_of_nameList (nameList: list<cipherSuiteName>) =
 
 #if ideal
    List.map (
@@ -738,14 +748,14 @@ let seq_of_bytes b = int_of_bytes b
 
 let vlbytes (lSize:int) b = bytes_of_int lSize (length b) @| b
 
-let vlsplit lSize vlb : (bytes * bytes) Result =
+let vlsplit lSize vlb : Result<(bytes * bytes)> =
     let (vl,b) = split vlb lSize
     let l = int_of_bytes vl
     if l <= length b
     then correct(split b l)
     else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
 
-let vlparse lSize vlb : bytes Result =
+let vlparse lSize vlb : Result<bytes> =
     let (vl,b) = split vlb lSize
     let l = int_of_bytes vl
     if l = length b

@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -12,14 +12,20 @@
 
 module Range
 
-(* This modules defines the range computations for length-hiding *)
+(* This modules defines all range computations for the lengths of
+   plaintext messages exchanged over TLS, in order to construct
+   length-hiding authenticated encryption. *)
 
 open Bytes
 open TLSConstants
 open TLSInfo
+open TLSExtensions
+
+(* ranges *)
 
 type range = low:nat * high:nat { low <= high }
 type (;r:range) rbytes = b:bytes { ?l,h. r = (l,h) /\ l <= Length(b) /\ Length(b) <= h }
+
 function val Sum: range * range -> range
 definition !l0,h0,l1,h1. Sum((l0,h0),(l1,h1)) = (l0+l1,h0+h1)
 val sum: r0:range -> r1:range -> r:range{r = Sum(r0,r1)}
@@ -27,114 +33,191 @@ val sum: r0:range -> r1:range -> r:range{r = Sum(r0,r1)}
 predicate SubRange of range * range
 definition !l0,l1,h0,h1. SubRange((l0,h0),(l1,h1)) <=> l1 <= l0 && h0 <= h1
 
-function val RangeClass: id * range -> range
-function val TargetLength: id * range -> nat
-function val CipherRangeClass: id * nat -> range
-
-definition !e,r. RangeClass(e,r) = CipherRangeClass(e,TargetLength(e,r))
-theorem !e,t,rg.  rg = CipherRangeClass(e,t) => t = TargetLength(e,rg)
-theorem !e,r. SubRange(r,RangeClass(e,r))
+(* lengths of IVs and padding for AE(id) *)
 
 function val IVSize: id -> nat
 definition
-	(!i,mac. i.aeAlg = MACOnly(mac) => IVSize(i) = 0) /\
-	(!i,mac. i.aeAlg = MtE(Stream_RC4_128,mac) => IVSize(i) = 0 ) /\
+	(!i,mac.     i.aeAlg = MACOnly(mac)            => IVSize(i) = 0) /\
+	(!i,mac.     i.aeAlg = MtE(Stream_RC4_128,mac) => IVSize(i) = 0 ) /\
 	(!i,mac,alg. i.aeAlg = MtE(CBC_Stale(alg),mac) => IVSize(i) = 0 ) /\
-	(!i,mac,alg. i.aeAlg = MtE(CBC_Fresh(alg),mac) => IVSize(i)= BlockSize(alg))
+	(!i,mac,alg. i.aeAlg = MtE(CBC_Fresh(alg),mac) => IVSize(i) = BlockSize(alg)) /\
+	(!i,aealg,macalg. i.aeAlg = AEAD(aealg,macalg) => IVSize(i) = 0)
+val ivSize: e:id -> l:nat{l=IVSize(e)}
 
 ask !i. (?mac. i.aeAlg = MACOnly(mac) \/ i.aeAlg = MtE(Stream_RC4_128,mac)) => IVSize(i) = 0
 
-val ivSize: e:id -> l:nat{l=IVSize(e)}
+function val FixedPadSize: id * unit -> nat
+definition
 
-val fixedPadSize: id:id -> l:nat{l=1}
+		( (!i,mac.       i.aeAlg = MACOnly(mac)            => FixedPadSize(i,())=0 ) /\
+		  (!i,aeAlg,mac. i.aeAlg = AEAD(aeAlg,mac)         => FixedPadSize(i,())=0 ) /\
+		  (!i,mac.       i.aeAlg = MtE(Stream_RC4_128,mac) => FixedPadSize(i,())=0 ) /\
+		  (!i,alg,mac.   i.aeAlg = MtE(CBC_Stale(alg),mac) => FixedPadSize(i,())=1 ) /\
+		  (!i,alg,mac.   i.aeAlg = MtE(CBC_Fresh(alg),mac) => FixedPadSize(i,())=1 )
+		)
+
+val fixedPadSize: id:id -> l:nat{l=FixedPadSize(id,())}
 
 function val MaxPadSize: i:id * unit -> nat
-private definition !i,mac,alg,aeAlg.
-    (i.aeAlg = MACOnly(mac) 	        => MaxPadSize(i,()) = 0)  /\
-	(i.aeAlg = AEAD(aeAlg,mac)			=> MaxPadSize(i,()) = 0)  /\
-    (i.aeAlg = MtE(Stream_RC4_128,mac) 	=> MaxPadSize(i,()) = 0 ) /\
-    (i.aeAlg = MtE(CBC_Fresh(alg),mac) /\ (PvOfId(i) = TLS_1p0 \/ PvOfId(i) = TLS_1p1 \/ PvOfId(i) = TLS_1p2)
-	                                    => MaxPadSize(i,()) = 255) /\
-    (i.aeAlg = MtE(CBC_Stale(alg),mac) /\ (PvOfId(i) = TLS_1p0 \/ PvOfId(i) = TLS_1p1 \/ PvOfId(i) = TLS_1p2)
-                                        => MaxPadSize(i,()) = 255) /\
-    (i.aeAlg = MtE(CBC_Fresh(alg),mac) /\ PvOfId(i) = SSL_3p0
-										=> MaxPadSize(i,()) = BlockSize(alg)) /\
-    (i.aeAlg = MtE(CBC_Stale(alg),mac) /\ PvOfId(i) = SSL_3p0
-										=> MaxPadSize(i,()) = BlockSize(alg))
+definition
+
+		(
+		(!i,mac. i.aeAlg = MACOnly(mac) 	        => MaxPadSize(i,()) = 0)  /\
+		(!i,aeAlg,mac. i.aeAlg = AEAD(aeAlg,mac)	=> MaxPadSize(i,()) = 0)  /\
+		(!i,mac. i.aeAlg = MtE(Stream_RC4_128,mac) 	=> MaxPadSize(i,()) = 0 ) /\
+		(!i,alg,mac. i.aeAlg = MtE(CBC_Fresh(alg),mac)
+			/\ (PvOfId(i) = TLS_1p0 \/ PvOfId(i) = TLS_1p1 \/ PvOfId(i) = TLS_1p2)
+											=> MaxPadSize(i,()) = 256) /\
+		(!i,alg,mac. i.aeAlg = MtE(CBC_Stale(alg),mac)
+			/\ (PvOfId(i) = TLS_1p0 \/ PvOfId(i) = TLS_1p1 \/ PvOfId(i) = TLS_1p2)
+											=> MaxPadSize(i,()) = 256) /\
+		(!i,alg,mac. i.aeAlg = MtE(CBC_Fresh(alg),mac) /\ PvOfId(i) = SSL_3p0
+											=> MaxPadSize(i,()) = BlockSize(alg)) /\
+		(!i,alg,mac. i.aeAlg = MtE(CBC_Stale(alg),mac) /\ PvOfId(i) = SSL_3p0
+											=> MaxPadSize(i,()) = BlockSize(alg))
+		)
 
 val maxPadSize: i:id -> l:nat{l = MaxPadSize(i,())}
 
-val minMaxPad: i:id -> l:nat * h:nat{
-	(MaxPadSize(i,()) = 0 /\ l = 0 /\ h = 0 ) \/
-	 MaxPadSize(i,()) > 0 /\ l = 1 /\ h = MaxPadSize(i,())}
+(* the range that can be conveyed in one fragment *)
 
-// Padding computations
-function val Modulus: int * int -> int
-//private definition !x,y. Modulus(x,y) = 0
+predicate RangeFragment of id * range
+definition !i,l,h. RangeFragment(i,(l,h)) <=>
+	h <= fragmentLength
 
-function val BlockAlignedPadding: id * nat -> nat
-definition !e,mac,alg,aeAlg,l.
-	(e.aeAlg = MACOnly(mac)    => BlockAlignedPadding(e,l) = 0 ) /\
-	(e.aeAlg = AEAD(aeAlg,mac) => BlockAlignedPadding(e,l) = 0 ) /\
-	(e.aeAlg = MtE(Stream_RC4_128,mac) => BlockAlignedPadding(e,l) = 0 ) /\
-	(e.aeAlg = MtE(CBC_Fresh(alg),mac) /\ Modulus(l + 1,BlockSize(alg)) = 0 =>
-                                 BlockAlignedPadding(e,l) = 1) /\
-	(e.aeAlg = MtE(CBC_Stale(alg),mac) /\ Modulus(l + 1,BlockSize(alg)) = 0 =>
-                                 BlockAlignedPadding(e,l) = 1) /\
-	(e.aeAlg = MtE(CBC_Fresh(alg),mac) /\ Modulus(l + 1,BlockSize(alg)) <> 0 =>
-                                 BlockAlignedPadding(e,l) = 1 + BlockSize(alg) - Modulus(l + 1,BlockSize(alg))) /\
-	(e.aeAlg = MtE(CBC_Stale(alg),mac) /\ Modulus(l + 1,BlockSize(alg)) <> 0 =>
-                                 BlockAlignedPadding(e,l) = 1 + BlockSize(alg) - Modulus(l + 1,BlockSize(alg)))
+(* minimal padding length for a given plaintext length (in bytes) *)
 
-private val blockAlignPadding: e:id -> l:nat -> l':nat{l' = BlockAlignedPadding(e,l)}
+function val MinimalPadding: id * nat -> nat
+private definition
+	(!e,mac,l.       l>=0 /\ e.aeAlg = MACOnly(mac)            => MinimalPadding(e,l) = 0 ) /\
+	(!e,aeAlg,mac,l. l>=0 /\ e.aeAlg = AEAD(aeAlg,mac)         => MinimalPadding(e,l) = 0 ) /\
+	(!e,mac,l.       l>=0 /\ e.aeAlg = MtE(Stream_RC4_128,mac) => MinimalPadding(e,l) = 0 ) /\
+	(!e,alg,mac,l.   l>=0 /\ e.aeAlg = MtE(CBC_Fresh(alg),mac) =>
+                   MinimalPadding(e,l) = BlockSize(alg) - bop_Modulus(l,BlockSize(alg))) /\
+	(!e,alg,mac,l.   l>=0 /\ e.aeAlg = MtE(CBC_Stale(alg),mac) =>
+                   MinimalPadding(e,l) = BlockSize(alg) - bop_Modulus(l,BlockSize(alg)))
+ask !e,alg,mac,l.
+	( l >= 0 /\ (e.aeAlg = MtE(CBC_Fresh(alg),mac) \/ e.aeAlg = MtE(CBC_Stale(alg),mac)) ) =>
+	(MinimalPadding(e,l) > 0 /\ MinimalPadding(e,l) <= BlockSize(alg))
 
-definition !e,mac,alg,aeAlg,l,h.
-	h >= 0 =>
-	(
-		( (e.aeAlg = MACOnly(mac) \/
-		   e.aeAlg = MtE(alg,mac)  ) =>
-		TargetLength(e,(l,h)) =
+private val minimalPadding: e:id -> l:nat -> l':nat{l' = MinimalPadding(e,l)}
+
+(* TargetLength: ciphertext length for AE, including IV *)
+
+function val TargetLength: id * range -> nat
+
+definition !e,l,h,mac.
+	(h >= 0 /\ e.aeAlg = MACOnly(mac)) =>
+	TargetLength(e,(l,h)) =
 			IVSize(e) + h + MacKeySize(MacAlg(e)) +
-			BlockAlignedPadding(e,h + MacKeySize(MacAlg(e))) ) /\
-		( e.aeAlg = AEAD(aeAlg,mac) =>
-		TargetLength(e,(l,h)) =
+			MinimalPadding(e,h + MacKeySize(MacAlg(e)))
+definition !e,l,h,mac,alg.
+	(h >= 0 /\ e.aeAlg = MtE(CBC_Fresh(alg),mac)) =>
+	TargetLength(e,(l,h)) =
+			IVSize(e) + h + MacKeySize(MacAlg(e)) +
+			MinimalPadding(e,h + MacKeySize(MacAlg(e)))
+definition !e,l,h,mac,alg.
+	(h >= 0 /\ e.aeAlg = MtE(CBC_Stale(alg),mac)) =>
+	TargetLength(e,(l,h)) =
+			IVSize(e) + h + MacKeySize(MacAlg(e)) +
+			MinimalPadding(e,h + MacKeySize(MacAlg(e)))
+definition !e,l,h,mac,alg.
+	(h >= 0 /\ e.aeAlg = MtE(Stream_RC4_128,mac)) =>
+	TargetLength(e,(l,h)) =
+			IVSize(e) + h + MacKeySize(MacAlg(e)) +
+			MinimalPadding(e,h + MacKeySize(MacAlg(e)))
+definition !e,l,h,mac,aeAlg.
+	(h >= 0 /\ e.aeAlg = AEAD(aeAlg,mac)) =>
+	TargetLength(e,(l,h)) =
 			AEADRecordIVSize(aeAlg) + h + AEADTagSize(aeAlg)
-		)
-	)
-
-ask !e,l,h. h >= 0 => TargetLength(e,(l,h)) >= 0
 
 val targetLength: i:id -> r:range ->
-  tlen:nat {tlen = TargetLength(i,r) /\ tlen <= max_TLSCipher_fragment_length}
+  l:nat {l = TargetLength(i,r) /\ l <= max_TLSCipher_fragment_length}
+
+ask !e,l,h,mac.
+	(h >= 0 /\ e.aeAlg = MACOnly(mac)) =>
+	TargetLength(e,(l,h)) >= 0
+ask !e,l,h,mac,alg.
+	(h >= 0 /\ e.aeAlg = MtE(CBC_Stale(alg),mac)) =>
+	TargetLength(e,(l,h)) >= BlockSize(alg)
+
+(* CipherRangeClass: given a cipher length, what's the range of plaintexts? *)
+
+function val CipherRangeClass: id * nat -> range
 
 definition
-	(!e,tlen,alg,mac,x.
-           e.aeAlg = MtE(CBC_Fresh(alg),mac) /\
-            x = tlen - IVSize(e) - MacKeySize(mac) - 1 /\
+	(!e,tlen,alg,mac.
+            e.aeAlg = MtE(CBC_Fresh(alg),mac) /\
+            tlen - IVSize(e) - MacKeySize(mac) - FixedPadSize(e,()) >= 0 /\
+            tlen - IVSize(e) - MacKeySize(mac) - MaxPadSize(e,()) < 0 =>
+            CipherRangeClass(e,tlen) = (0,tlen - IVSize(e) - MacKeySize(mac) - FixedPadSize(e,())))
+definition
+	(!e,tlen,alg,mac.
+            e.aeAlg = MtE(CBC_Fresh(alg),mac) /\
+            tlen - IVSize(e) - MacKeySize(mac) - FixedPadSize(e,()) >= 0 /\
+            tlen - IVSize(e) - MacKeySize(mac) - MaxPadSize(e,()) >= 0 =>
+            CipherRangeClass(e,tlen) =
+              (tlen - IVSize(e) - MacKeySize(mac) - MaxPadSize(e,()),
+               tlen - IVSize(e) - MacKeySize(mac) - FixedPadSize(e,())))
+definition
+	(!e,tlen,alg,mac.
+            e.aeAlg = MtE(CBC_Stale(alg),mac) /\
+            tlen - IVSize(e) - MacKeySize(mac) - FixedPadSize(e,()) >= 0 /\
+            tlen - IVSize(e) - MacKeySize(mac) - MaxPadSize(e,()) < 0 =>
+            CipherRangeClass(e,tlen) = (0,tlen - IVSize(e) - MacKeySize(mac) - FixedPadSize(e,())))
+definition
+	(!e,tlen,alg,mac.
+            e.aeAlg = MtE(CBC_Stale(alg),mac) /\
+            tlen - IVSize(e) - MacKeySize(mac) - FixedPadSize(e,()) >= 0 /\
+            tlen - IVSize(e) - MacKeySize(mac) - MaxPadSize(e,()) >= 0 =>
+            CipherRangeClass(e,tlen) =
+              (tlen - IVSize(e) - MacKeySize(mac) - MaxPadSize(e,()),
+               tlen - IVSize(e) - MacKeySize(mac) - FixedPadSize(e,())))
+private definition
+	(!e,tlen,alg,mac,x,y.
+            e.aeAlg = MtE(Stream_RC4_128,mac) /\
+            x = tlen - IVSize(e) - MacKeySize(mac) - FixedPadSize(e,()) /\
+            y = tlen - IVSize(e) - MacKeySize(mac) - MaxPadSize(e,()) /\
             x >= 0 =>
-             ((x < 255 /\ CipherRangeClass(e,tlen) = (0,x)) \/
-              (x >= 255 /\ CipherRangeClass(e,tlen) = (x-255,x)))) /\
-	(!e,tlen,alg,mac,x.
-	  e.aeAlg = MtE(CBC_Stale(alg),mac) /\
-            x = tlen - IVSize(e) - MacKeySize(mac) - 1 /\
+             ((y < 0  /\ CipherRangeClass(e,tlen) = (0,x)) \/
+              (y >= 0 /\ CipherRangeClass(e,tlen) = (y,x))))
+private definition
+	(!e,tlen,mac,x,y.
+            e.aeAlg = MACOnly(mac) /\
+            x = tlen - IVSize(e) - MacKeySize(mac) - FixedPadSize(e,()) /\
+            y = tlen - IVSize(e) - MacKeySize(mac) - MaxPadSize(e,()) /\
             x >= 0 =>
-             ((x < 255 /\ CipherRangeClass(e,tlen) = (0,x)) \/
-              (x >= 255 /\ CipherRangeClass(e,tlen) = (x-255,x)))) /\
-	(!e,tlen,mac,x.
-	  e.aeAlg = MACOnly(mac) /\
-          x = tlen - MacKeySize(mac) /\
-          x >= 0 => CipherRangeClass(e,tlen) = (x,x)) /\
-	(!e,tlen,mac,x.
-	  e.aeAlg = MtE(Stream_RC4_128,mac) /\
-          x = tlen - IVSize(e) - MacKeySize(mac) /\ x >= 0 =>
-             CipherRangeClass(e,tlen) = (x,x)) /\
-	(!e,tlen,aeAlg,mac,x.
-	  e.aeAlg = AEAD(aeAlg,mac) /\
-		  x = tlen - AEADRecordIVSize(aeAlg) - AEADTagSize(aeAlg) /\ x >= 0 =>
-			 CipherRangeClass(e,tlen) = (x,x))
+             ((y < 0  /\ CipherRangeClass(e,tlen) = (0,x)) \/
+              (y >= 0 /\ CipherRangeClass(e,tlen) = (y,x))))
+private definition
+	(!e,tlen,aeAlg,mac,x,y.
+	    e.aeAlg = AEAD(aeAlg,mac) /\
+       	    x = tlen - AEADRecordIVSize(aeAlg) - AEADTagSize(aeAlg) - FixedPadSize(e,()) /\
+            y = tlen - AEADRecordIVSize(aeAlg) - AEADTagSize(aeAlg) - MaxPadSize(e,()) /\
+            x >= 0 =>
+      	     ((y < 0 /\ CipherRangeClass(e,tlen) = (0,x)) \/
+              (y >= 0 /\ CipherRangeClass(e,tlen) = (y,x))))
+
+ask !e,tlen,mac.
+	e.aeAlg = MACOnly(mac) /\
+	tlen - IVSize(e) - MacKeySize(mac) - FixedPadSize(e,()) >= 0 =>
+	CipherRangeClass(e,tlen) = (tlen - MacKeySize(mac), tlen - MacKeySize(mac))
+ask !e,tlen,mac.
+	e.aeAlg = MtE(Stream_RC4_128,mac) /\
+	tlen - IVSize(e) - MacKeySize(mac) - FixedPadSize(e,()) >= 0 =>
+	CipherRangeClass(e,tlen) = (tlen - MacKeySize(mac), tlen - MacKeySize(mac))
 
 val cipherRangeClass: e:id ->
   tlen:nat{tlen <= max_TLSCipher_fragment_length} ->
   r:range {r = CipherRangeClass(e,tlen)}
 
+theorem !e,t,rg.  rg = CipherRangeClass(e,t) => t = TargetLength(e,rg)
+
+function val RangeClass: id * range -> range
+definition !e,r. RangeClass(e,r) = CipherRangeClass(e,TargetLength(e,r))
+
 val rangeClass: e:id -> r0:range -> r1:range{r1 = RangeClass(e,r0)}
+
+theorem !e,r. SubRange(r,RangeClass(e,r))
+
+val minMaxPad: i:id -> l:nat * h:nat{ l = FixedPadSize(i,()) /\ h = MaxPadSize(i,())}

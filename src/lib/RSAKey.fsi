@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -13,17 +13,21 @@
 module RSAKey
 
 type sk
-type pk
+type pk = { pk : CoreACiphers.pk }
 
 type modulus  = Bytes.bytes
 type exponent = Bytes.bytes
 
 #if ideal
 val honest: pk -> bool
+val strong: TLSConstants.ProtocolVersion -> bool
 #endif
 
-val create_rsapkey : modulus * exponent -> pk
-val create_rsaskey : modulus * exponent -> sk
+val gen: unit -> pk * sk
+val coerce: pk -> CoreACiphers.sk -> sk
 
 val repr_of_rsapkey : pk -> CoreACiphers.pk
 val repr_of_rsaskey : sk -> CoreACiphers.sk
+
+val create_rsapkey : modulus * exponent -> pk
+//val create_rsaskey : modulus * exponent -> sk

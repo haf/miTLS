@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -16,6 +16,8 @@ open Bytes
 open TLSInfo
 open TLSConstants
 open Range
+open Error
+open TLSError
 
 type history
 
@@ -42,6 +44,9 @@ val RecordPlainToHSPlain     : epoch -> history -> range -> plain -> HSFragment.
 val RecordPlainToCCSPlain    : epoch -> history -> range -> plain -> HSFragment.plain
 val RecordPlainToAlertPlain  : epoch -> history -> range -> plain -> HSFragment.plain
 val RecordPlainToAppPlain    : epoch -> history -> range -> plain -> AppFragment.plain
+
+val makeExtPad:  id -> ContentType -> range -> fragment -> fragment
+val parseExtPad: id -> ContentType -> range -> fragment -> Result<fragment>
 
 #if ideal
 val widen: id -> ContentType -> range -> fragment -> fragment

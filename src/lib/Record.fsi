@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -30,9 +30,9 @@ type recvState = ConnectionState
 val initConnState: epoch -> rw -> StatefulLHAE.state -> ConnectionState
 val nullConnState: epoch -> rw -> ConnectionState
 
-val parseHeader: bytes -> (ContentType * ProtocolVersion * nat) Result
+val parseHeader: bytes -> Result<(ContentType * ProtocolVersion * nat)>
 
 val recordPacketOut: epoch -> sendState -> ProtocolVersion -> range -> ContentType -> TLSFragment.fragment -> (sendState * bytes)
-val recordPacketIn : epoch -> recvState -> ContentType -> bytes -> (recvState * range * TLSFragment.fragment) Result
+val recordPacketIn : epoch -> recvState -> ContentType -> bytes -> Result<(recvState * range * TLSFragment.fragment)>
 
 val history: epoch -> rw -> ConnectionState -> TLSFragment.history

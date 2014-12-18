@@ -1,12 +1,12 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
- *
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
+ * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
- *
+ * 
  * You should have received a copy of the CeCILL-B (version 1) license
  * along with this program.  If not, see:
- *
+ * 
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
@@ -29,7 +29,7 @@ open Range
 
 (*** Following RFC5246 A.4 *)
 
-type HandshakeType =
+type PreHandshakeType =
     | HT_hello_request
     | HT_client_hello
     | HT_server_hello
@@ -40,6 +40,8 @@ type HandshakeType =
     | HT_certificate_verify
     | HT_client_key_exchange
     | HT_finished
+
+type HandshakeType = PreHandshakeType
 
 let htBytes t =
     match t with
@@ -121,16 +123,125 @@ let makeFragment ki b =
 //         | Error z -> Error z
 //     | Error z -> Error z
 
+(** General message parsing *)
+let splitMessage ht data =
+  if length data >= 1 then
+    let (ht', pl) = split data 1 in
+        if htBytes ht = ht' then
+            Correct pl
+        else
+            Error (AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
+  else
+    Error (AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
+
 (** A.4.1 Hello Messages *)
 
 #if verify
-type chello = | ClientHelloMsg of (bytes * ProtocolVersion * random * sessionID * cipherSuites * Compression list * bytes)
+type log = bytes         (* message payloads so far, to be eventually authenticated *)
+type cVerifyData = bytes (* ClientFinished payload *)
+type sVerifyData = bytes (* ServerFinished payload *)
+#endif
+
+type chello = | ClientHelloMsg of (bytes * ProtocolVersion * random * sessionID * cipherSuites * list<Compression> * bytes)
 
 type preds = ServerLogBeforeClientCertificateVerifyRSA of SessionInfo * bytes
             |ServerLogBeforeClientCertificateVerify of SessionInfo * bytes
             |ServerLogBeforeClientCertificateVerifyDHE of SessionInfo * bytes
             |ServerLogBeforeClientFinished of SessionInfo * bytes
+            |UpdatesClientAuth of SessionInfo * SessionInfo
+
+#if verify
+let popBytes i data =
+    if length data >= i then
+        let (data, r) = split data i in
+            Correct (data, r)
+    else
+        Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
+
+let popVLBytes i data =
+    if length data >= i then
+        match vlsplit i data with
+        | Error z -> Error z
+        | Correct data -> let (data, r) = data in Correct (data, r)
+    else
+        Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
+
+let popProtocolVersion data =
+    match popBytes 2 data with
+    | Error z -> Error z
+    | Correct data ->
+        let (pv, r) = data in
+            match parseVersion pv with
+            | Error z -> Error z
+            | Correct pv -> Correct (pv, r)
+
+let popClientRandom data = popBytes   32 data
+let popCSBytes      data = popVLBytes  2 data
+let popCPBytes      data = popVLBytes  1 data
+
+let popSid data =
+    match popVLBytes 1 data with
+    | Error z -> Error z
+    | Correct data ->
+        let (sid, data) = data in
+            if length sid <= 32 then
+                Correct (sid, data)
+            else
+                Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
+
+let popCS data =
+    let d = popCSBytes data in
+    match d with
+    | Error z -> Error z
+    | Correct data ->
+        let (csb, r) = data in
+            match parseCipherSuites csb with
+            | Error z -> Error z
+            | Correct cs -> let aout = (cs, r) in correct aout
+
+let popCP data =
+    let d = popCPBytes data in
+    match d with
+    | Error z -> Error z
+    | Correct data ->
+        let (cpb, r) = data in
+        let cp = parseCompressions cpb in
+            correct (cp, r)
+
+let parseClientHelloDumb data =
+    (* Protocol version *)
+    match popProtocolVersion data with
+    | Error z -> Error z
+    | Correct data ->
+    let (pv, data) = data in
+
+    (* SessionID *)
+    match popClientRandom data with
+    | Error z -> Error z
+    | Correct data ->
+    let (cr, data) = data in
+
+    (* Client random *)
+    match popSid data with
+    | Error z -> Error z
+    | Correct data ->
+    let (sid, data) = data in
+
+    (* CipherSuites *)
+    match popCS data with
+    | Error z -> Error z
+    | Correct data ->
+    let (cs, data) = data in
+
+    (* Compression *)
+    match popCP data with
+    | Error z -> Error z
+    | Correct data ->
+    let (cp, data) = data in
+
+        Correct (pv,cr,sid,cs,cp,data)
 #endif
+
 let parseClientHello data =
     if length data >= 34 then
         let (clVerBytes,cr,data) = split2 data 2 32 in
@@ -173,9 +284,9 @@ let clientHelloBytes poptions crand session ext =
     let csb = cipherSuitesBytes cs in
     let ccsuitesB  = vlbytes 2 csb in
     let cm = poptions.compressions in
-    let cmb = (compressionMethodsBytes cm) in
+    let cmb = compressionMethodsBytes cm in
     let ccompmethB = vlbytes 1 cmb in
-    let data = cVerB @| random @| csessB @| ccsuitesB @| ccompmethB @| ext in
+    let data = cVerB @| (random @| (csessB @| (ccsuitesB @| (ccompmethB @| ext)))) in
     messageBytes HT_client_hello data
 
 let serverHelloBytes sinfo srand ext =
@@ -222,19 +333,20 @@ let serverHelloDoneBytes = messageBytes HT_server_hello_done empty_bytes
 
 let serverCertificateBytes cl = messageBytes HT_certificate (Cert.certificateListBytes cl)
 
-let clientCertificateBytes (cs:(Cert.chain * Sig.alg * Sig.skey) option) =
+let clientCertificateBytes (cs:option<(Cert.chain * Sig.alg * Sig.skey)>) =
 
     match cs with
-    | None -> messageBytes HT_certificate (Cert.certificateListBytes [])
+    | None -> let clb = Cert.certificateListBytes [] in messageBytes HT_certificate clb
     | Some(v) ->
         let (certList,_,_) = v in
-        messageBytes HT_certificate (Cert.certificateListBytes certList)
+        let clb = Cert.certificateListBytes certList in
+        messageBytes HT_certificate clb
 
 let parseClientOrServerCertificate data =
     if length data >= 3 then
         match vlparse 3 data with
         | Error z -> let (x,y) = z in Error(AD_bad_certificate_fatal, perror __SOURCE_FILE__ __LINE__ y)
-        | Correct (certList) -> Cert.parseCertificateList certList []
+        | Correct (certList) -> Cert.parseCertificateList certList
     else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
 
 let sigHashAlgBytesVersion version cs =
@@ -273,7 +385,7 @@ let certificateRequestBytes sign cs version =
             @| distNames in
     messageBytes HT_certificate_request data
 
-let parseCertificateRequest version data: (certType list * Sig.alg list * string list) Result =
+let parseCertificateRequest version data: Result<(list<certType> * list<Sig.alg> * list<string>)> =
     if length data >= 1 then
         match vlsplit 1 data with
         | Error(z) -> Error(z)
@@ -316,41 +428,24 @@ let parseEncpmsVersion version data =
             | Error(z) -> Error(z)
         else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
 
-let clientKEXBytes_RSA si config =
-    if List.listLength si.serverID = 0 then
-        unexpected "[clientKEXBytes_RSA] Server certificate should always be present with a RSA signing cipher suite."
-    else
-        match Cert.get_chain_public_encryption_key si.serverID with
-        | Error(z) -> Error(z)
-        | Correct(pubKey) ->
-            let pms = PMS.genRSA pubKey config.maxVer in
-            let encpms = RSA.encrypt pubKey config.maxVer pms in
-            let nencpms = encpmsBytesVersion si.protocol_version encpms in
-            let mex = messageBytes HT_client_key_exchange nencpms in
-            let pmsdata = RSAPMS(pubKey,config.maxVer,encpms) in
-            correct(mex,pmsdata,pms)
+let clientKeyExchangeBytes_RSA si encpms =
+    let nencpms = encpmsBytesVersion si.protocol_version encpms in
+    let mex = messageBytes HT_client_key_exchange nencpms in
+        mex
 
-let parseClientKEX_RSA si skey cv config data =
-    if List.listLength si.serverID = 0 then
-        unexpected "[parseClientKEX_RSA] when the ciphersuite can encrypt the PMS, the server certificate should always be set"
-    else
-        match parseEncpmsVersion si.protocol_version data with
-        | Correct(encPMS) ->
-            let res = RSA.decrypt skey si cv config.check_client_version_in_pms_for_old_tls encPMS in
-            let (Correct(pk)) = Cert.get_chain_public_encryption_key si.serverID in
-            correct(RSAPMS(pk,cv,encPMS),res)
-        | Error(z) -> Error(z)
+let parseClientKeyExchange_RSA si data =
+    parseEncpmsVersion si.protocol_version data
 
 let clientKEXExplicitBytes_DH y =
     let yb = vlbytes 2 y in
     messageBytes HT_client_key_exchange yb
 
-let parseClientKEXExplicit_DH p data =
+let parseClientKEXExplicit_DH p g data =
     if length data >= 2 then
         match vlparse 2 data with
         | Error(z) -> Error(z)
         | Correct(y) ->
-            match DHGroup.checkElement p y with
+            match DHGroup.checkElement p g y with
             | None -> Error(AD_illegal_parameter, perror __SOURCE_FILE__ __LINE__ "Invalid DH key received")
             | Some(y) -> correct y
     else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
@@ -420,10 +515,10 @@ let parseDHEParams payload =
                 | Correct(res) ->
                 let (y,payload) = res in
                 // Check g and y are valid elements
-                match DHGroup.checkElement p g with
+                match DHGroup.checkElement p g g with
                 | None -> Error(AD_illegal_parameter, perror __SOURCE_FILE__ __LINE__ "Invalid DH parameter received")
                 | Some(g) ->
-                    match DHGroup.checkElement p y with
+                    match DHGroup.checkElement p g y with
                     | None -> Error(AD_illegal_parameter, perror __SOURCE_FILE__ __LINE__ "Invalid DH parameter received")
                     | Some(y) -> correct(p,g,y,payload)
             else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
@@ -454,8 +549,9 @@ let serverKeyExchangeBytes_DH_anon p g y =
 let parseServerKeyExchange_DH_anon payload =
     match parseDHEParams payload with
     | Error(z) -> Error(z)
-    | Correct(p,g,y,rem) ->
-        if length  rem = 0 then
+    | Correct(z) ->
+        let (p,g,y,rem) = z in
+        if length rem = 0 then
             correct(p,g,y)
         else
             Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
@@ -493,17 +589,17 @@ let certificateVerifyCheck si ms algs log payload =
         match si.protocol_version with
         | TLS_1p2 | TLS_1p1 | TLS_1p0 ->
             match Cert.get_chain_public_signing_key si.clientID alg with
-            | Error(z) -> (false,empty_bytes)
+            | Error(z) -> (false,alg,empty_bytes)
             | Correct(vkey) ->
                 let res = Sig.verify alg vkey log signature in
-                (res,signature)
+                (res,alg,signature)
         | SSL_3p0 ->
             let (sigAlg,_) = alg in
             let alg = (sigAlg,NULL) in
             let expected = PRF.ssl_certificate_verify si ms sigAlg log in
             match Cert.get_chain_public_signing_key si.clientID alg with
-            | Error(z) -> (false,empty_bytes)
+            | Error(z) -> (false,alg,empty_bytes)
             | Correct(vkey) ->
                 let res = Sig.verify alg vkey expected signature in
-                (res,signature)
-    | Error(z) -> (false,empty_bytes)
+                (res,alg,signature)
+    | Error(z) -> (false,(SA_RSA,SHA),empty_bytes)

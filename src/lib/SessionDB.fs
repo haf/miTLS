@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -19,10 +19,9 @@ open Date
 (* ------------------------------------------------------------------------------- *)
 type StorableSession = SessionInfo * PRF.masterSecret
 type SessionIndex = sessionID * Role * Cert.hint
-
 #if ideal
 type entry = sessionID * Role * Cert.hint * StorableSession
-type t = entry list
+type t = list<entry>
 
 let create (c:config) : t = []
 
@@ -55,7 +54,7 @@ type t = {
 
 (* ------------------------------------------------------------------------------- *)
 module Option =
-    let filter (f : 'a -> bool) (x : 'a option) =
+    let filter (f : 'a -> bool) (x : option<'a>) =
         match x with
         | None -> None
         | Some x when f x -> Some x
@@ -96,7 +95,7 @@ let create poptions =
 
 (* ------------------------------------------------------------------------------- *)
 let remove self sid role hint =
-    let key = bytes_of_key (Bytes.cbytes sid, role, hint) in
+    let key = bytes_of_key (Bytes.cbytes sid,role,hint) in
     let db  = DB.opendb self.filename in
 
     try
@@ -107,7 +106,7 @@ let remove self sid role hint =
 
 (* ------------------------------------------------------------------------------- *)
 let select self sid role hint =
-    let key = bytes_of_key (Bytes.cbytes sid, role, hint) in
+    let key = bytes_of_key (Bytes.cbytes sid,role,hint) in
 
     let select (db : DB.db) =
         let filter_record ((sinfo, ts) : StorableSession * _) =
@@ -133,7 +132,7 @@ let select self sid role hint =
 
 (* ------------------------------------------------------------------------------- *)
 let insert self sid role hint value =
-    let key = bytes_of_key (Bytes.cbytes sid, role, hint) in
+    let key = bytes_of_key (Bytes.cbytes sid,role,hint) in
     let insert (db : DB.db) =
         match DB.get db key with
         | Some _ -> ()

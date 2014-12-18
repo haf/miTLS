@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -15,8 +15,6 @@ module TLSConstants
 open Bytes
 open Error
 open TLSError
-
-(* Not abstract, but meant to be used only by crypto modules and CipherSuites *)
 
 type PreProtocolVersion =
     | SSL_3p0
@@ -56,9 +54,9 @@ type macAlg =
     | MA_SSLKHASH of hashAlg
 
 type sigAlg =
-  | SA_RSA
-  | SA_DSA
-  | SA_ECDSA
+    | SA_RSA
+    | SA_DSA
+    | SA_ECDSA
 
 type sigHashAlg = sigAlg * hashAlg
 
@@ -72,9 +70,9 @@ type aeAlg =
     | AEAD of aeadAlg * macAlg
 
 val sigAlgBytes: sigAlg -> bytes
-val parseSigAlg: bytes -> sigAlg Result
+val parseSigAlg: bytes -> Result<sigAlg>
 val hashAlgBytes: hashAlg -> bytes
-val parseHashAlg: bytes -> hashAlg Result
+val parseHashAlg: bytes -> Result<hashAlg>
 
 val encKeySize: encAlg -> nat
 val blockSize: blockCipher -> nat
@@ -88,16 +86,16 @@ val macSize: macAlg -> nat
 
 type cipherSuite
 
-type cipherSuites = cipherSuite list
+type cipherSuites = list<cipherSuite>
 
-type Compression =
-    | NullCompression
+type PreCompression = NullCompression
+type Compression = PreCompression
 
 val versionBytes: ProtocolVersion -> bytes
-val parseVersion: bytes -> ProtocolVersion Result
+val parseVersion: bytes -> Result<ProtocolVersion>
 val minPV: ProtocolVersion -> ProtocolVersion -> ProtocolVersion
 val geqPV: ProtocolVersion -> ProtocolVersion -> bool
-val somePV: ProtocolVersion -> ProtocolVersion option
+val somePV: ProtocolVersion -> option<ProtocolVersion>
 
 val nullCipherSuite: cipherSuite
 val isNullCipherSuite: cipherSuite -> bool
@@ -106,25 +104,29 @@ val isAnonCipherSuite: cipherSuite -> bool
 val isDHCipherSuite: cipherSuite -> bool
 val isDHECipherSuite: cipherSuite -> bool
 val isRSACipherSuite: cipherSuite -> bool
+val isOnlyMACCipherSuite: cipherSuite -> bool
 val contains_TLS_EMPTY_RENEGOTIATION_INFO_SCSV: cipherSuites -> bool
 
 type prflabel = bytes
 val extract_label: prflabel
+val extended_extract_label: prflabel
 val kdf_label: prflabel
 
-type prfAlg' =
-  | CRE_SSL3_nested                   // MD5(SHA1(...)) for extraction and keygen
-  | CRE_TLS_1p01 of prflabel          // MD5 xor SHA1
-  | CRE_TLS_1p2 of prflabel * macAlg  // typically SHA256 but may depend on CS
+type prePrfAlg =
+  | PRF_SSL3_nested                   // MD5(SHA1(...)) for extraction and keygen
+  | PRF_SSL3_concat                   // MD5 @| SHA1    for VerifyData tags
+  | PRF_TLS_1p01 of prflabel          // MD5 xor SHA1
+  | PRF_TLS_1p2 of prflabel * macAlg  // typically SHA256 but may depend on CS
 
-type creAlg = prfAlg'
-type prfAlg = ProtocolVersion * cipherSuite
-type kdfAlg = prfAlg
-type vdAlg = prfAlg
+type kefAlg = prePrfAlg
+type kdfAlg = prePrfAlg
+type vdAlg = ProtocolVersion * cipherSuite
 
 val verifyDataLen_of_ciphersuite: cipherSuite -> nat
 val prfMacAlg_of_ciphersuite: cipherSuite -> macAlg
 val verifyDataHashAlg_of_ciphersuite: cipherSuite -> hashAlg
+
+val sessionHashAlg: ProtocolVersion -> cipherSuite -> hashAlg
 
 val aeAlg: cipherSuite -> ProtocolVersion -> aeAlg
 val macAlg_of_aeAlg: aeAlg -> macAlg
@@ -134,16 +136,14 @@ val encAlg_of_ciphersuite: cipherSuite -> ProtocolVersion -> encAlg
 val sigAlg_of_ciphersuite: cipherSuite -> sigAlg
 
 val compressionBytes: Compression -> bytes
-val compressionMethodsBytes: Compression list -> bytes
-val parseCompression: bytes -> Compression Result
-val parseCompressions: bytes -> Compression list
+val compressionMethodsBytes: list<Compression> -> bytes
+val parseCompression: bytes -> Result<Compression>
+val parseCompressions: bytes -> list<Compression>
 
 val cipherSuiteBytes: cipherSuite -> bytes
-val parseCipherSuite: bytes -> cipherSuite Result
-val parseCipherSuites: bytes -> cipherSuites Result
+val parseCipherSuite: bytes -> Result<cipherSuite>
+val parseCipherSuites: bytes -> Result<cipherSuites>
 val cipherSuitesBytes: cipherSuites -> bytes
-
-(* Not for verification, just to run the implementation *)
 
 type cipherSuiteName =
     | TLS_NULL_WITH_NULL_NULL
@@ -190,10 +190,8 @@ type cipherSuiteName =
     | TLS_DH_anon_WITH_AES_128_GCM_SHA256
     | TLS_DH_anon_WITH_AES_256_GCM_SHA384
 
-val cipherSuites_of_nameList: cipherSuiteName list -> cipherSuites
-val name_of_cipherSuite: cipherSuite -> cipherSuiteName Result
-
-(* val split_at_most: bytes -> nat -> (bytes * bytes) *)
+val cipherSuites_of_nameList: list<cipherSuiteName> -> cipherSuites
+val name_of_cipherSuite: cipherSuite -> Result<cipherSuiteName>
 
 type preContentType =
     | Change_cipher_spec
@@ -206,14 +204,12 @@ val bytes_of_seq: nat -> bytes
 val seq_of_bytes: bytes -> nat
 
 val ctBytes: ContentType -> bytes
-val parseCT: bytes -> ContentType Result
+val parseCT: bytes -> Result<ContentType>
 val CTtoString: ContentType -> string
 
 val vlbytes: nat -> bytes -> bytes
-val vlsplit: nat -> bytes -> (bytes * bytes) Result
-val vlparse: nat -> bytes -> bytes Result
-
-//val splitList: bytes -> nat list -> bytes list
+val vlsplit: nat -> bytes -> Result<(bytes * bytes)>
+val vlparse: nat -> bytes -> Result<bytes>
 
 type certType =
     | RSA_sign
@@ -222,9 +218,9 @@ type certType =
     | DSA_fixed_dh
 
 val certTypeBytes: certType -> bytes
-val parseCertType: bytes -> certType Result
-val certificateTypeListBytes: certType list -> bytes
-val parseCertificateTypeList: bytes -> certType list Result
-val defaultCertTypes: bool -> cipherSuite -> certType list
-val distinguishedNameListBytes: string list -> bytes
-val parseDistinguishedNameList: bytes -> string list -> string list Result
+val parseCertType: bytes -> Result<certType>
+val certificateTypeListBytes: list<certType> -> bytes
+val parseCertificateTypeList: bytes -> Result<list<certType>>
+val defaultCertTypes: bool -> cipherSuite -> list<certType>
+val distinguishedNameListBytes: list<string> -> bytes
+val parseDistinguishedNameList: bytes -> list<string> -> Result<list<string>>

@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -17,8 +17,7 @@ open TLSConstants
 open CoreSig
 
 (* ------------------------------------------------------------------------ *)
-
-type alg = sigHashAlg
+type alg = sigHashAlg //defined in TLSConstants
 
 type text = bytes
 type sigv = bytes
@@ -41,31 +40,24 @@ let sigalg_of_pkeyparams = function
 // - a log of (a,pk,t) entries for all honestly signed texts
 
 type entry = alg * pkey * text
-// type entry = a:alg * pk:(;a) pk * t:text * s:(;a) sigv { Msg(a,pk,t) }
+//in F7: type entry = a:alg * pk:(;a) pk * t:text * s:(;a) sigv { Msg(a,pk,t) }
 
 type honest_entry = alg * skey * pkey
-let honest_log = ref ([]: honest_entry list)
-let log        = ref ([]: entry list)
+let honest_log = ref ([]: list<honest_entry>)
+let log        = ref ([]: list<entry>)
 
-let rec has_mac (a : alg) (pk : pkey) (t : text) (l:entry list) =
+let rec has_mac (a : alg) (pk : pkey) (t : text) (l:list<entry>) =
   match l with
       [] -> false
     | (a',pk',t')::r when a = a' && pk = pk' && t = t' -> true
     | h::r -> has_mac a pk t r
 
-(*
-let rec find_pk (a:alg) (sk:skey) (l:(alg * skey * pkey) list) =
+let rec has_pk (a:alg) (pk:pkey) (l:list<(alg * skey * pkey)>) =
     match l with
-        [] -> None
-      | (_,sk',pk)::t when sk = sk' -> Some pk
-      | (_,sk',pk)::t when sk <> sk' -> find_pk a sk t
-*)
-
-let rec has_pk (a:alg) (pk:pkey) (l:(alg * skey * pkey) list) =
-    match l with
-        [] -> false
+      | [] -> false
       | (a',_,pk')::t when a = a' && pk = pk' -> true
       | (a',_,pk')::t when a <> a' || pk <> pk' -> has_pk a pk t
+      | _ -> Error.unexpected "[has_pk] unreachable pattern match"
 
 let pk_of (a:alg) (sk:skey) =  sk.pub
 let consHonestLog a sk pk log =  (a, sk, pk)::log
@@ -73,12 +65,13 @@ let consLog a pk t log =  (a, pk, t)::log
 
 let honest (a:alg) (pk:pkey) : bool =
 #if verify
-  failwith "only ideal implementation, unverified"
+  failwith "only used in ideal implementation, unverified"
 #else
   has_pk a pk (!honest_log)
 #endif
 let strong a = if a=(SA_DSA ,SHA384) then true else false
-
+#else //ideal
+let honest (a:alg) (pk:pkey) : bool = false
 #endif
 
 (* ------------------------------------------------------------------------ *)

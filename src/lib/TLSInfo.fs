@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -36,11 +36,14 @@ type csrands = bytes
 type cVerifyData = bytes (* ClientFinished payload *)
 type sVerifyData = bytes (* ServerFinished payload *)
 
+type sessionHash = bytes
+
 // Defined here to not depend on TLSExtension
 type negotiatedExtension =
-    | NE_VoidExtension
+    | NE_extended_ms
+    | NE_extended_padding
 
-type negotiatedExtensions = negotiatedExtension list
+type negotiatedExtensions = list<negotiatedExtension>
 
 let noCsr:csrands = Nonce.random 64
 
@@ -50,17 +53,12 @@ type pmsId =
 let pmsId (pms:PMS.pms) = SomePmsId(pms)
 let noPmsId = NoPmsId
 
-type pmsData =
-  | PMSUnset
-  | RSAPMS of RSAKey.pk * ProtocolVersion * bytes
-  | DHPMS  of DHGroup.p * DHGroup.g * DHGroup.elt * DHGroup.elt
-
 type msId =
   pmsId *
   csrands *
-  creAlg
+  kefAlg
 
-let noMsId = noPmsId, noCsr, CRE_SSL3_nested
+let noMsId = noPmsId, noCsr, PRF_SSL3_nested
 
 type SessionInfo = {
     init_crand: crand;
@@ -70,37 +68,45 @@ type SessionInfo = {
     compression: Compression;
     extensions: negotiatedExtensions;
     pmsId: pmsId;
-    pmsData: pmsData;
+    session_hash: sessionHash;
     client_auth: bool;
-    clientID: Cert.cert list;
-    serverID: Cert.cert list;
+    clientID: list<Cert.cert>;
+    clientSigAlg: Sig.alg;
+    serverID: list<Cert.cert>;
+    serverSigAlg: Sig.alg;
     sessionID: sessionID;
-    // Extensions:
-    extended_record_padding: bool;
     }
 
 let csrands sinfo =
     sinfo.init_crand @| sinfo.init_srand
 
-let prfAlg (si:SessionInfo) =
-  si.protocol_version, si.cipher_suite
-
-let creAlg (si:SessionInfo) =
+let kefAlg (si:SessionInfo) =
   match si.protocol_version with
-  | SSL_3p0           -> CRE_SSL3_nested
-  | TLS_1p0 | TLS_1p1 -> let x = CRE_TLS_1p01(extract_label) in x
+  | SSL_3p0           -> PRF_SSL3_nested
+  | TLS_1p0 | TLS_1p1 -> let x = PRF_TLS_1p01(extract_label) in x
   | TLS_1p2           -> let ma = prfMacAlg_of_ciphersuite si.cipher_suite
-                         CRE_TLS_1p2(extract_label,ma)
+                         PRF_TLS_1p2(extract_label,ma)
 
 let kdfAlg (si:SessionInfo) =
-  si.protocol_version, si.cipher_suite
+  match si.protocol_version with
+  | SSL_3p0           -> PRF_SSL3_nested
+  | TLS_1p0 | TLS_1p1 -> let x = PRF_TLS_1p01(kdf_label) in x
+  | TLS_1p2           -> let ma = prfMacAlg_of_ciphersuite si.cipher_suite
+                         PRF_TLS_1p2(kdf_label,ma)
+
+let kefAlg_extended (si:SessionInfo) =
+  match si.protocol_version with
+  | SSL_3p0           -> PRF_SSL3_nested
+  | TLS_1p0 | TLS_1p1 -> let x = PRF_TLS_1p01(extended_extract_label) in x
+  | TLS_1p2           -> let ma = prfMacAlg_of_ciphersuite si.cipher_suite
+                         PRF_TLS_1p2(extended_extract_label,ma)
 
 let vdAlg (si:SessionInfo) =
   si.protocol_version, si.cipher_suite
 
 let msi (si:SessionInfo) =
   let csr = csrands si
-  let ca = creAlg si
+  let ca = kefAlg si
   (si.pmsId, csr, ca)
 
 type preEpoch =
@@ -171,6 +177,7 @@ type id = {
   pv: ProtocolVersion; //Should be part of aeAlg
   aeAlg  : aeAlg
   csrConn: csrands;
+  ext: negotiatedExtensions;
   writer : Role }
 
 //let idInv (i:id):succEpoch = failwith "requires a log, and pointless to implement anyway"
@@ -188,16 +195,17 @@ let pv_of_id (id:id) =  id.pv
 let kdfAlg_of_id (id:id) = id.kdfAlg
 
 type event =
-  | KeyCommit of    csrands * ProtocolVersion * aeAlg
-  | KeyGenClient of csrands * ProtocolVersion * aeAlg
-  | SentCCS of Role * epoch
+  | KeyCommit of    csrands * ProtocolVersion * aeAlg * negotiatedExtensions
+  | KeyGenClient of csrands * ProtocolVersion * aeAlg * negotiatedExtensions
+  | SentCCS of Role * crand * srand * SessionInfo
 
 let noId: id = {
   msId = noMsId;
-  kdfAlg=(SSL_3p0,nullCipherSuite);
+  kdfAlg=PRF_SSL3_nested;
   pv=SSL_3p0;
   aeAlg= MACOnly(MA_SSLKHASH(NULL));
   csrConn = noCsr;
+  ext = [];
   writer=Client }
 
 let id e =
@@ -211,13 +219,41 @@ let id e =
     let kdfAlg = kdfAlg si
     let aeAlg  = aeAlg cs pv
     let csr    = epochCSRands e
+    let ext    = si.extensions
     let wr     = epochWriter e
-    {msId = msi;
-     kdfAlg=kdfAlg;
-     pv=pv;
-     aeAlg = aeAlg;
-     csrConn = csr;
-     writer=wr }
+    { msId = msi;
+      kdfAlg = kdfAlg;
+      pv = pv;
+      aeAlg = aeAlg;
+      csrConn = csr;
+      ext = ext;
+      writer = wr }
+
+// Pretty printing
+let sinfo_to_string (si:SessionInfo) =
+#if verify
+    ""
+#else
+    let sb = new System.Text.StringBuilder() in
+    let sb = sb.AppendLine("Session Information:") in
+    let sb = sb.AppendLine(Printf.sprintf "Protocol Version: %A" si.protocol_version) in
+    let sb = sb.AppendLine(Printf.sprintf "Ciphersuite: %A" (
+                            match name_of_cipherSuite si.cipher_suite with
+                            | Error.Error(_) -> failwith "Unknown ciphersuite"
+                            | Error.Correct(c) -> c)) in
+    let sb = sb.AppendLine(Printf.sprintf "Session ID: %s" (hexString si.sessionID)) in
+    let sb = sb.AppendLine(Printf.sprintf "Session Hash: %s" (hexString si.session_hash)) in
+    let sb = sb.AppendLine(Printf.sprintf "Server Identity: %s" (
+                            match Cert.get_hint si.serverID with
+                            | None -> "None"
+                            | Some(c) -> c)) in
+    let sb = sb.AppendLine(Printf.sprintf "Client Identity: %s" (
+                            match Cert.get_hint si.clientID with
+                            | None -> "None"
+                            | Some(c) -> c)) in
+    let sb = sb.AppendLine(Printf.sprintf "Extensions: %A" si.extensions) in
+    sb.ToString()
+#endif
 
 // Application configuration
 type helloReqPolicy =
@@ -229,13 +265,14 @@ type config = {
     minVer: ProtocolVersion
     maxVer: ProtocolVersion
     ciphersuites: cipherSuites
-    compressions: Compression list
+    compressions: list<Compression>
 
     (* Handshake specific options *)
 
     (* Client side *)
     honourHelloReq: helloReqPolicy
     allowAnonCipherSuite: bool
+    safe_resumption: bool
 
     (* Server side *)
     request_client_certificate: bool
@@ -265,6 +302,7 @@ let defaultConfig ={
     check_client_version_in_pms_for_old_tls = true
 
     safe_renegotiation = true
+    safe_resumption = false // Turn to true if it gets standard
     server_name = "mitls.example.org"
     client_name = "client.example.org"
 
@@ -285,7 +323,7 @@ let honestPMS (pi:pmsId) : bool =
     | SomePmsId(PMS.DHPMS(p,g,gx,gy,dhpms)) -> PMS.honestDHPMS p g gx gy dhpms
     | _ -> false
 
-let strongCRE (ca:creAlg) = failwith "spec only": bool
+let strongKEF (ca:kefAlg) = failwith "spec only": bool
 
 // These functions are used only for specifying ideal implementations
 let safeHS (e:epoch) = failwith "spec only": bool

@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -26,7 +26,7 @@ val outStream: ConnectionInfo -> app_state -> stream
 
 val init:           ConnectionInfo -> app_state
 val writeAppData:   ConnectionInfo -> app_state -> range -> AppFragment.fragment -> stream -> app_state
-val next_fragment:  ConnectionInfo -> app_state -> (range * AppFragment.fragment * app_state) option
+val next_fragment:  ConnectionInfo -> app_state -> option<(range * AppFragment.fragment * app_state)>
 val clearOutBuf:    ConnectionInfo -> app_state -> app_state
 
 val recv_fragment:  ConnectionInfo -> app_state -> range -> AppFragment.fragment -> delta * app_state

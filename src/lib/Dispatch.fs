@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -14,7 +14,6 @@ module Dispatch
 
 open Bytes
 open TLSConstants
-//open Record
 open Tcp
 open Error
 open TLSError
@@ -22,14 +21,13 @@ open Handshake
 open Alert
 open TLSInfo
 open Range
-
-open TLSFragment // Required by F7, or deliver won't parse.
+open TLSFragment
 
 type predispatchState =
   | Init
   | FirstHandshake of TLSConstants.ProtocolVersion
   | Finishing
-  | Finished (* Only for Writing side, used to implement TLS False Start *)
+  | Finished (* Only for Writing side, useful if we were to allow TLS False Start *)
   | Open
   | Closing of ProtocolVersion * string
   | Closed
@@ -165,7 +163,10 @@ let pickSendPV (Conn(id,c)) =
     match c_write.disp with
     | Init -> getMinVersion id c.handshake
     | FirstHandshake(pv) | Closing(pv,_) -> pv
-    | Finishing | Finished | Open -> let id_out = id.id_out in let si = epochSI(id_out) in si.protocol_version
+    | Finishing | Finished | Open ->
+        let id_out = id.id_out in
+        let si = epochSI(id_out) in
+        si.protocol_version
     | Closed -> unexpected "[pickSendPV] invoked on a Closed connection"
 
 let closeConnection (Conn(id,c)) =
@@ -205,7 +206,7 @@ let send ns e write pv rg ct frag =
 
 (* which fragment should we send next? *)
 (* we must send this fragment before restoring the connection invariant *)
-let writeOne (Conn(id,c)): writeOutcome * Connection =
+let writeOne (Conn(id,c)) (ghost: option<(range * DataStream.delta * AppFragment.plain * DataStream.stream)>): writeOutcome * Connection =
   let c_write = c.write in
   match c_write.disp with
   | Closed -> let reason = perror __SOURCE_FILE__ __LINE__ "Trying to write on a closed connection" in (WError(reason), Conn(id,c))
@@ -221,9 +222,9 @@ let writeOne (Conn(id,c)): writeOutcome * Connection =
                 match c_write.disp with
                 | Open ->
                     let app_state = c.appdata in
-                    match AppData.next_fragment id app_state with
-                    | None -> (WDone,Conn(id,c))
-                    | Some (next) ->
+                    match (AppData.next_fragment id app_state, ghost) with
+                    | None, None -> (WDone,Conn(id,c))
+                    | Some (next), Some(_) ->
                         let (tlen,f,new_app_state) = next in
                         (* we send some data fragment *)
                         let id_out = id.id_out in
@@ -240,6 +241,7 @@ let writeOne (Conn(id,c)): writeOutcome * Connection =
                             (WAppDataDone, Conn(id,c))
 
                         | Error z -> let (x,y) = z in let closed = closeConnection (Conn(id,c)) in (WError(y),closed) (* Unrecoverable error *)
+                    | _,_ -> unexpected "[writeOne] invoked with inconsisten arguments"
                 | _ ->
                     // We are finishing a handshake. Tell we're done, so that next read will complete the handshake.
                     (WDone,Conn(id,c))
@@ -432,7 +434,7 @@ let writeOne (Conn(id,c)): writeOutcome * Connection =
             (WError(reason),closed) (* Unrecoverable error *)
 
 let rec writeAllClosing (Conn(id,s)) =
-    match writeOne (Conn(id,s)) with
+    match writeOne (Conn(id,s)) None with
     | (WriteAgain,c) -> writeAllClosing c
     | (WError(x),conn) -> WError(x),conn
     | (SentClose,conn) -> SentClose,conn
@@ -440,7 +442,7 @@ let rec writeAllClosing (Conn(id,s)) =
     | (_,_) -> unexpected "[writeAllClosing] writeOne returned wrong result"
 
 let rec writeAllFinishing conn =
-    match writeOne conn with
+    match writeOne conn None with
     | (WError(x),conn) -> (WError(x), conn)
     | (SentFatal(x,y),conn) -> (SentFatal(x,y),conn)
     | (SentClose,conn) -> (SentClose,conn)
@@ -452,8 +454,8 @@ let rec writeAllFinishing conn =
     | (WHSDone,conn) -> (WHSDone,conn)
     | (_,_) -> unexpected "[writeAllFinishing] writeOne returned wrong result"
 
-let rec writeAllTop conn =
-    match writeOne conn with
+let rec writeAllTop conn (ghost: option<(range * DataStream.delta * AppFragment.plain * DataStream.stream)>) =
+    match writeOne conn ghost with
     | (WError(x),conn) -> (WError(x), conn)
     | (SentFatal(x,y),conn) -> (SentFatal(x,y),conn)
     | (SentClose,conn) -> (SentClose,conn)
@@ -463,7 +465,7 @@ let rec writeAllTop conn =
     | (WriteAgainFinishing,conn) ->
         writeAllFinishing conn
     | (WriteAgain,conn) ->
-        writeAllTop conn
+        writeAllTop conn ghost
     | (_,_) -> unexpected "[writeAllTop] writeOne returned wrong result"
 
 let getHeader (Conn(id,c)) =
@@ -474,7 +476,6 @@ let getHeader (Conn(id,c)) =
         | Error x -> Error(x)
         | Correct(res) ->
         let (ct,pv,len) = res in
-        // check pv
         let c_read = c.read in
         match c_read.disp with
         | Init -> correct(ct,len)
@@ -546,8 +547,8 @@ let readOne (Conn(id,c0)) =
                         | Handshake.InVersionAgreed(hs,pv) ->
                             match c_read.disp with
                             | Init ->
-                                (* Then, also c_write must be in Init state. It means this is the very first, unprotected handshake,
-                                    and we just negotiated the version.
+                                (* Then, also c_write must be in Init state. It means this is the very first, unprotected,
+                                    handshake of the connection, and we just negotiated the version.
                                     Set the negotiated version in the current sinfo (read and write side),
                                     and move to the FirstHandshake state, so that
                                     protocol version will be properly checked *)
@@ -767,7 +768,7 @@ let rec readAllFinishing c =
     | RFatal(ad) -> c,RFatal(ad)
     | RError(err) -> unexpected "[readAllFinishing] Read error can never be returned by read one"
     | RFinished ->
-        let (outcome,c) = writeAllTop c in
+        let (outcome,c) = writeAllTop c None in
         match outcome with
         | WHSDone -> c,WriteOutcome(WHSDone)
         | SentFatal(x,y) -> unexpected "[readAllFinishing] There should be no way of sending a fatal alert after we validated the peer Finished message"
@@ -796,7 +797,7 @@ let rec readAllFinishing c =
 
 let rec read c =
     let orig = c in
-    let (outcome,c) = writeAllTop c in
+    let (outcome,c) = writeAllTop c None in
     match outcome with
     | SentClose -> c,WriteOutcome(SentClose)
     | SentFatal(ad,err) -> c,WriteOutcome(SentFatal(ad,err))
@@ -850,29 +851,23 @@ let rec read c =
         | WriteOutcome(_) -> unexpected "[read] readOne should never return such write outcome"
         | RError(err) -> c,RError(err)
 
-let msgWrite (Conn(id,c)) (rg,d) =
-  let (r0,r1) = DataStream.splitRange id.id_out rg in
-  if r0 = rg then
-    let outStr = AppData.outStream id c.appdata in
-    let (f,ns) = AppFragment.fragment id.id_out outStr r0 d
-    (rg,f,ns,None)
-  else
-    let outStr = AppData.outStream id c.appdata in
-    let ki_out = TLSInfo.id id.id_out in
-    let (d0,d1) = DataStream.split id.id_out outStr r0 r1 d in
-    let (f,ns) = AppFragment.fragment id.id_out outStr r0 d0 in
-    let msg1 = (r1,d1) in
-    (r0,f,ns,Some(msg1))
-
-let write (Conn(id,s)) msg =
-  let res = msgWrite (Conn(id,s)) msg in
-  let (r0,f0,ns,rdOpt) = res in
-  let new_appdata = AppData.writeAppData id s.appdata r0 f0 ns in
+let write (Conn(id,s)) (rg,d) =
+  let outStr = AppData.outStream id s.appdata in
+  let (f,ns) = AppFragment.fragment id.id_out outStr rg d
+  let new_appdata = AppData.writeAppData id s.appdata rg f ns in
   let s = {s with appdata = new_appdata} in
-  let (outcome,Conn(id,s)) = writeAllTop (Conn(id,s)) in
+  let ghost = (rg,d,f,ns) in
+  let ghost = Some(ghost) in
+  let (outcome,Conn(id,s)) = writeAllTop (Conn(id,s)) ghost in
   let new_appdata = AppData.clearOutBuf id s.appdata in
   let s = {s with appdata = new_appdata} in
-  Conn(id,s),outcome,rdOpt
+  match outcome with
+  | WError (_) | SentFatal(_,_) -> Conn(id,s),outcome
+  | WriteFinished -> Conn(id,s),outcome
+  | WAppDataDone -> Conn(id,s),outcome
+  | WriteAgain | WriteAgainFinishing | WriteAgainClosing
+  | WDone | WHSDone | SentClose ->
+    unexpected "[write] writeAllTop should never return this"
 
 let authorize (Conn(id,c)) q =
     let hsRes = Handshake.authorize id c.handshake q in
@@ -887,8 +882,8 @@ let authorize (Conn(id,c)) q =
     | Handshake.InVersionAgreed(hs,pv) ->
         match c_read.disp with
         | Init ->
-            (* Then, also c_write must be in Init state. It means this is the very first, unprotected handshake,
-                and we just negotiated the version.
+            (* Then, also c_write must be in Init state. It means this is the very first, unprotected,
+                handshake on the connection, and we just negotiated the version.
                 Set the negotiated version in the current sinfo (read and write side),
                 and move to the FirstHandshake state, so that
                 protocol version will be properly checked *)
@@ -910,48 +905,9 @@ let authorize (Conn(id,c)) q =
     | Handshake.InQuery(query,advice,hs) ->
         unexpected "[authorize] A query should never be received"
     | Handshake.InFinished(hs) ->
-            (* Ensure we are in Finishing state *)
-            match c_read.disp with
-                | Finishing ->
-                    let c_read = {c_read with disp = Finished} in
-                    let c1 = {c with handshake = hs;
-                                    read = c_read} in
-                    let (wo,conn) = writeAllTop (Conn(id,c1)) in
-                    match wo with
-                    | WHSDone -> conn,WriteOutcome(WHSDone)
-                    | WError(x) -> conn,WriteOutcome(WError(x))
-                    | SentClose -> conn,WriteOutcome(SentClose)
-                    | SentFatal (x,y) -> conn,WriteOutcome(SentFatal(x,y))
-                    | _ -> unexpected "[authorize] writeAllTop returned wrong result"
-                | _ ->
-                    let reason = perror __SOURCE_FILE__ __LINE__ "Finishing handshake in the wrong state" in
-                    let closing = abortWithAlert (Conn(id,c)) AD_internal_error reason in
-                    let wo,conn = writeAllClosing closing in
-                    conn,WriteOutcome(wo)
+        unexpected "[authorize] The finished message should never be received right after a query"
     | Handshake.InComplete(hs) ->
-            let c = {c with handshake = hs} in
-            (* Ensure we are in the correct state *)
-            let c_write = c.write in
-            match (c_read.disp, c_write.disp) with
-            | (Finishing, Finished) ->
-                (* Sanity check: in and out session infos should be the same *)
-                if epochSI(id.id_in) = epochSI(id.id_out) then
-                    match moveToOpenState (Conn(id,c)) with
-                    | Correct(c) ->
-                        (Conn(id,c),RHSDone)
-                    | Error(z) ->
-                        let (x,y) = z in
-                        let closing = abortWithAlert (Conn(id,c)) x y in
-                        let wo,conn = writeAllClosing closing in
-                        conn,WriteOutcome(wo)
-                else
-                    let closed = closeConnection (Conn(id,c)) in
-                    (closed,RError(perror __SOURCE_FILE__ __LINE__ "Invalid connection state")) (* Unrecoverable error *)
-            | _ ->
-                let reason = perror __SOURCE_FILE__ __LINE__ "Invalid connection state" in
-                let closing = abortWithAlert (Conn(id,c)) AD_internal_error reason in
-                let wo,conn = writeAllClosing closing in
-                conn,WriteOutcome(wo)
+        unexpected "[authorize] Handshake should never complete right after a query"
     | Handshake.InError(x,y,hs) ->
         let c = {c with handshake = hs} in
         let closing = abortWithAlert (Conn(id,c)) x y in

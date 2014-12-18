@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -53,7 +53,7 @@ let parseAD (i:id) ad =
 
 type fragment = {contents: TLSFragment.fragment}
 
-type prehistory = (adata * range * fragment) list
+type prehistory = list<(adata * range * fragment)>
 type history = (nat * prehistory)
 
 type plain = fragment
@@ -82,6 +82,19 @@ let reprFragment (i:id) (ad:adata) (r:range) (f:plain) =
     let x = f.contents in
     TLSFragment.reprFragment i ct r x
 let repr i (h:history) ad r f = reprFragment i ad r f
+
+let makeExtPad (i:id) (ad:adata) (r:range) f =
+    let ct = parseAD i ad in
+    let p = f.contents in
+    let p = TLSFragment.makeExtPad i ct r p in
+    {contents = p}
+
+let parseExtPad (i:id) (ad:adata) (r:range) f =
+    let ct = parseAD i ad in
+    let p = f.contents in
+    match TLSFragment.parseExtPad i ct r p with
+    | Error(x) -> Error(x)
+    | Correct(p) -> correct ({contents = p})
 
 #if ideal
 let widen i ad r f =

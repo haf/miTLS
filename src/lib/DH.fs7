@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -15,23 +15,49 @@ module DH
 open Bytes
 open DHGroup
 
-// "Strong" parameter generation used by compliant servers,
-// formally a precondition for signing them with an honest key.
-predicate val PP: p:p * g:(;p) g -> bool
-private val goodPP: p:p * g:(;p) g -> bool
+// marks "Honest" exponentials generated using genKey (or serverGen)
+predicate type predHE = HonestExponential of p:p * g:(;p) g * gx:(;p,g) elt
+
+private val goodPP: p:p -> g:(;p) g -> b:bool{b = true <=> PP(p,g)}
+private val honest: p:p -> g:(;p)g -> e:(;p,g) elt -> b:bool{b = true <=> HonestExponential(p,g,e)}
 
 //#begin-abstraction
-type (;p:p,g:(;p)g,gx:(;p)elt) secret
+private type (;p:p, g:(;p)g, gx:(;p,g)elt) secret = Key of bytes
 //#end-abstraction
 
-// the RFCs are vague about best practices for ppgen
-val gen_pp:     unit -> p:p * g:(;p) g {PP(p,g)}
-val default_pp: unit -> p:p * g:(;p) g {PP(p,g)}
+// We maintain 3 logs:
+// - a log of honest gx and gy values
+// - a log of DH parameters returned by pp
+// - a log for looking up honest pms values using gx and gy values
+type honest_entry = (p:p  * g:(;p) g * (;p,g) elt)
+type good_entry = (p:p * (;p) g)
+type entry = p:p * g:(;p) g * gx:(;p,g) elt * gy:(;p,g) elt * pms:(;p, g, gx, gy) PMS.dhpms{PMS.HonestDHPMS(p,g,gx,gy,pms)}
+private val honest_log: (honest_entry list) ref
+private val goodPP_log: (good_entry list) ref
+private val log: entry list ref
 
-predicate HonestExponent of p:p * g:(;p)g * gx:(;p)elt
-val genKey: p:p -> g: (;p) g -> gx:(;p) elt * (;p,g,gx) secret{
-  HonestExponent(p,g,gx)}
+private val assoc: p:p -> g:(;p) g -> gx:(;p,g)elt -> gy:(;p,g)elt -> entry list -> pmsoption:(;p, g, gx, gy) PMS.dhpms option{!pms. pmsoption=Some(pms) => PMS.HonestDHPMS(p,g,gx,gy,pms)}
 
-val exp: p:p -> g:(;p)g -> gx:(;p) elt -> gy:(;p) elt -> x:(;p,g,gx) secret -> res:(;p,g,gx,gy) PMS.dhpms{
-  HonestExponent(p,g,gx) /\ HonestExponent(p,g,gy) =>
-    TLSInfo.HonestDHPMSData(p,g,gx,gy)}
+// RFCs are vague about best practices for Diffie-Hellman parameter generation
+// We use default parameters for which we store the order of the subgroup for ciphertext validation
+private val pp: CoreKeys.dhparams -> p:p * g:bytes * q option {Elt(p,g,g) /\ PP(p,g)}
+val gen_pp:     unit -> p:p * g:(;p) g * q option
+val default_pp: unit -> p:p * g:(;p) g * q option {Elt(p,g,g) /\ PP(p,g)}
+
+definition !p,g,gx,gy. PMS.SafeDH(p,g,gx,gy) <=> HonestExponential(p,g,gx) /\ HonestExponential(p,g,gy) /\ PP(p,g)
+
+ask !p,g,gx,gy. not HonestExponential(p,g,gx) => not PMS.SafeDH(p,g,gx,gy)
+ask !p,g,gx,gy. not HonestExponential(p,g,gy) => not PMS.SafeDH(p,g,gx,gy)
+ask !p,g,gx,gy. not PP(p,g) => not PMS.SafeDH(p,g,gx,gy)
+val safeDH: p:p -> g:(;p) g -> gx:(;p,g)elt -> gy:(;p,g)elt -> b:bool { b=true <=> PMS.SafeDH(p,g,gx,gy) }
+
+val genKey: p:p -> g:(;p) g -> q option -> gx:(;p,g) elt * (;p,g,gx) secret{HonestExponential(p,g,gx)}
+
+val serverGen: unit -> (p:p * g:(;p) g * gs:(;p,g) elt * (;p,g,gs) secret{PP(p,g) /\ HonestExponential(p,g,gs)})
+
+val clientGenExp: p:p -> g:(;p) g -> gs:(;p,g) elt
+				      -> (gc:(;p,g) elt * (;p,g,gc) secret * res:(;p,g,gs,gc) PMS.dhpms)
+					     {HonestExponential(p,g,gc) /\ ((HonestExponential(p,g,gs) /\ PP(p,g)) => PMS.HonestDHPMS(p,g,gs,gc,res))}
+
+val serverExp: p:p -> g:(;p) g{PP(p,g)} -> gs:(;p,g) elt{HonestExponential(p,g,gs)} -> gc:(;p,g) elt -> s:(;p,g,gs) secret
+				   -> res:(;p,g,gs,gc) PMS.dhpms{HonestExponential(p,g,gc) => PMS.HonestDHPMS(p,g,gs,gc,res)}

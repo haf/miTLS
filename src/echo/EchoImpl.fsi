@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -13,12 +13,13 @@
 module EchoImpl
 
 type options = {
-    ciphersuite : TLSConstants.cipherSuiteName list;
-    tlsversion  : TLSConstants.ProtocolVersion;
-    servername  : string;
-    clientname  : string option;
-    localaddr   : System.Net.IPEndPoint;
-    sessiondir  : string;
+    ciphersuite   : TLSConstants.cipherSuiteName list;
+    tlsminversion : TLSConstants.ProtocolVersion;
+    tlsmaxversion : TLSConstants.ProtocolVersion;
+    servername    : string;
+    clientname    : string option;
+    localaddr     : System.Net.IPEndPoint;
+    sessiondir    : string;
 }
 
 val client : options -> unit

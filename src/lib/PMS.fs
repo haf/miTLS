@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -12,7 +12,7 @@
 
 module PMS
 
-(* Split from CRE *)
+(* Split from KEF *)
 
 open Bytes
 open TLSConstants
@@ -29,9 +29,6 @@ type rsapms =
   | ConcreteRSAPMS of rsarepr
 
 #if ideal
-//this predicate is used in RSA.encrypt to record the event that rsapms got encrypted
-type predicates = EncryptedRSAPMS of RSAKey.pk * ProtocolVersion * rsapms * bytes
-
 //this function is used to determine whether idealization should be performed
 let honestRSAPMS (pk:RSAKey.pk) (cv:TLSConstants.ProtocolVersion) pms =
   match pms with
@@ -44,7 +41,7 @@ let genRSA (pk:RSAKey.pk) (vc:ProtocolVersion): rsapms =
     let rnd = Nonce.random 46 in
     let pms = verBytes @| rnd in
     #if ideal
-      if RSAKey.honest pk then
+      if RSAKey.honest pk && RSAKey.strong vc then
         IdealRSAPMS({seed=pms})
       else
     #endif
@@ -79,7 +76,7 @@ let honestDHPMS (p:DHGroup.p) (g:DHGroup.g) (gx:DHGroup.elt) (gy:DHGroup.elt) pm
 #endif
 
 let sampleDH p g (gx:DHGroup.elt) (gy:DHGroup.elt) =
-    let gz = DHGroup.genElement p g in
+    let gz = DHGroup.genElement p g None in
     #if ideal
     IdealDHPMS({seed=gz})
     #else

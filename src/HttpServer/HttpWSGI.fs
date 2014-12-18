@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -38,7 +38,7 @@ type WsgiEngine () =
                 failwith "PythonEngine already initialized";
             PythonEngine.Initialize ();
             try
-                // fprintfn stderr "WSGI: using python engine: %A" (PythonEngine.BuildInfo);
+
                 tid <- PythonEngine.BeginAllowThreads ()
             with e ->
                 PythonEngine.Shutdown ();
@@ -80,7 +80,7 @@ type WsgiHandler () =
         use lock   = new WsgiEngineLock () in
         use bridge = PythonEngine.ImportModule ("wsgibridge") in
         let error  = System.Console.Error in
-        let url    = sprintf "https://mitls.rocq.inria.fr/%s" request.path in
+        let url    = sprintf "https://%s/%s" config.servname request.path in
 
         let sinfo =
             try

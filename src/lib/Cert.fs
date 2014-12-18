@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -13,250 +13,120 @@
 module Cert
 
 (* ------------------------------------------------------------------------ *)
-open System.Text
-open System.Collections.Generic
-open System.Security.Cryptography
-open System.Security.Cryptography.X509Certificates
 
 open Bytes
 open TLSConstants
 open Error
 open TLSError
+open UntrustedCert
+open CoreSig
+open RSAKey
+
+type chain = UntrustedCert.chain
+type hint = UntrustedCert.hint
+type cert = UntrustedCert.cert
+
+type sign_cert = option<(chain * Sig.alg * Sig.skey)>
+type enc_cert  = option<(chain * RSAKey.sk)>
 
 (* ------------------------------------------------------------------------ *)
-type hint = string
-type cert = bytes
 
-type chain = cert list
-type sign_cert = (chain * Sig.alg * Sig.skey) option
-type enc_cert  = (chain * RSAKey.sk) option
+#if verify
+let forall (test: (X509Certificate2 -> bool)) (chain : list<X509Certificate2>) : bool = failwith "for specification purposes only, unverified"
+#else
+let forall (test: (X509Certificate2 -> bool)) (chain : list<X509Certificate2>) : bool = Seq.forall test chain
+#endif
 
-(* ------------------------------------------------------------------------ *)
-let OID_RSAEncryption           = "1.2.840.113549.1.1.1"
-let OID_MD5WithRSAEncryption    = "1.2.840.113549.1.1.4"
-let OID_SHAWithRSAEncryption    = "1.2.840.113549.1.1.5"
-let OID_SHA256WithRSAEncryption = "1.2.840.113549.1.1.11"
-let OID_DSASignatureKey         = "1.2.840.10040.4.1"
-let OID_DSASignature            = "1.2.840.10040.4.3"
+let for_signing (sigkeyalgs : list<Sig.alg>) (h : hint) (algs : list<Sig.alg>) =
+    match (find_sigcert_and_alg sigkeyalgs h algs) with
+    | Some(cert_and_alg) ->
+        let x509, (siga, hasha) = cert_and_alg
+        let alg = (siga, hasha)
+        match x509_to_secret_key x509, x509_to_public_key x509 with
+        | Some skey, Some pkey ->
+            let chain = x509_chain x509 in
 
-let oid_of_keyalg = function
-| SA_RSA   -> OID_RSAEncryption
-| SA_DSA   -> OID_DSASignatureKey
-| SA_ECDSA -> Error.unexpected "SA_ECDSA"
-
-(* ------------------------------------------------------------------------ *)
-let x509_to_public_key (x509 : X509Certificate2) =
-    match x509.GetKeyAlgorithm() with
-    | x when x = OID_RSAEncryption ->
-        try
-            let pkey = (x509.PublicKey.Key :?> RSA).ExportParameters(false) in
-                Some (CoreSig.PK_RSA (abytes pkey.Modulus, abytes pkey.Exponent))
-        with :? CryptographicException -> None
-
-    | x when x = OID_DSASignatureKey ->
-        try
-            let pkey = (x509.PublicKey.Key :?> DSA).ExportParameters(false) in
-            let dsaparams : CoreKeys.dsaparams =
-                { p = abytes pkey.P; q = abytes pkey.Q; g = abytes pkey.G }
-            in
-                Some (CoreSig.PK_DSA (abytes pkey.Y, dsaparams))
-        with :? CryptographicException -> None
-
-    | _ -> None
-
-let x509_to_secret_key (x509 : X509Certificate2) =
-    match x509.GetKeyAlgorithm() with
-    | x when x = OID_RSAEncryption ->
-        try
-            let skey = (x509.PrivateKey :?> RSA).ExportParameters(true) in
-                Some (CoreSig.SK_RSA (abytes skey.Modulus, abytes skey.D))
-        with :? CryptographicException -> None
-
-    | x when x = OID_DSASignatureKey ->
-        try
-            let skey = (x509.PrivateKey :?> DSA).ExportParameters(true) in
-            let dsaparams : CoreKeys.dsaparams =
-                { p = abytes skey.P; q = abytes skey.Q; g = abytes skey.G }
-            in
-                Some (CoreSig.SK_DSA (abytes skey.X, dsaparams))
-        with :? CryptographicException -> None
-
-    | _ -> None
+            if forall (x509_check_key_sig_alg_one sigkeyalgs) chain then
+                let pk = Sig.create_pkey alg pkey
+                #if ideal
+                if Sig.honest alg pk then
+                    None //loading of honest keys not implemented yet.
+                else
+                    let sk = Sig.coerce alg pk skey
+                    Some (x509list_to_chain chain, alg, sk)
+                #else
+                Some (x509list_to_chain chain, alg, Sig.coerce alg pk skey)
+                #endif
+            else
+                None
+        | None, _ -> None
+        | _, None -> None
+    | None -> None
 
 (* ------------------------------------------------------------------------ *)
-let x509_has_key_usage_flag strict flag (x509 : X509Certificate2) =
-    try
-        let kue =
-            x509.Extensions
-                |> Seq.cast
-                |> Seq.find (fun (e : X509Extension) -> e.Oid.Value = "2.5.29.15") in
-        let kue = kue :?> X509KeyUsageExtension in
 
-            kue.KeyUsages.HasFlag(flag)
-
-    with :? KeyNotFoundException ->
-        not strict
-
-(* ------------------------------------------------------------------------ *)
-let x509_check_key_sig_alg (sigkeyalg : Sig.alg) (x509 : X509Certificate2) =
-    match x509.SignatureAlgorithm with (* WARN: OID_MD5WithRSAEncryption is obsolete - removed *)
-    | o when o.Value = OID_SHAWithRSAEncryption ->
-         (* We are not strict, to comply with TLS < 1.2 *)
-            sigkeyalg = (SA_RSA, MD5SHA1)
-         || sigkeyalg = (SA_RSA, SHA    )
-         || sigkeyalg = (SA_RSA, NULL   )
-    | o when o.Value = OID_SHA256WithRSAEncryption ->
-        sigkeyalg = (SA_RSA, SHA256)
-    | o when o.Value = OID_DSASignature ->
-        sigkeyalg = (SA_DSA, SHA)
-    | _ -> false
-
-let x509_check_key_sig_alg_one (sigkeyalgs : Sig.alg list) (x509 : X509Certificate2) =
-    List.exists (fun a -> x509_check_key_sig_alg a x509) sigkeyalgs
-
-(* ------------------------------------------------------------------------ *)
-let x509_verify (x509 : X509Certificate2) =
-    let chain = new X509Chain() in
-        chain.ChainPolicy.RevocationMode <- X509RevocationMode.NoCheck;
-        chain.Build(x509)
-
-(* ------------------------------------------------------------------------ *)
-let x509_chain (x509 : X509Certificate2) = (* FIX: Is certs. store must be opened ? *)
-    let chain = new X509Chain() in
-        chain.ChainPolicy.RevocationMode <- X509RevocationMode.NoCheck;
-        ignore (chain.Build(x509));
-        chain.ChainElements
-            |> Seq.cast
-            |> Seq.map (fun (ce : X509ChainElement) -> ce.Certificate)
-            |> Seq.toList
-
-(* ------------------------------------------------------------------------ *)
-let x509_export_public (x509 : X509Certificate2) : bytes =
-    abytes (x509.Export(X509ContentType.Cert))
-
-(* ------------------------------------------------------------------------ *)
-let x509_is_for_signing (x509 : X509Certificate2) =
-       x509.Version >= 3
-    && x509_has_key_usage_flag false X509KeyUsageFlags.DigitalSignature x509
-
-let x509_is_for_key_encryption (x509 : X509Certificate2) =
-    x509.Version >= 3
-    && x509_has_key_usage_flag false X509KeyUsageFlags.KeyEncipherment x509
-
-(* ------------------------------------------------------------------------ *)
-let for_signing (sigkeyalgs : Sig.alg list) (h : hint) (algs : Sig.alg list) =
-    let store = new X509Store(StoreName.My, StoreLocation.CurrentUser) in
-
-    store.Open(OpenFlags.ReadOnly ||| OpenFlags.OpenExistingOnly)
-    try
-        try
-            let (x509, ((siga, hasha) as alg)) =
-                let pick_wrt_req_alg (x509 : X509Certificate2) =
-                    let testalg ((asig, _) : Sig.alg) =
-                        x509.GetKeyAlgorithm() = oid_of_keyalg asig
-                    in
-
-                    if x509.HasPrivateKey && x509_is_for_signing x509 then
-                        match List.tryFind testalg algs with
-                        | None     -> None
-                        | Some alg -> Some (x509, alg)
-                    else
-                        None
-                in
-                    store.Certificates.Find(X509FindType.FindBySubjectName, h, false)
-                        |> Seq.cast
-                        |> Seq.filter (fun (x509 : X509Certificate2) -> x509_verify x509)
-                        |> Seq.filter (x509_check_key_sig_alg_one sigkeyalgs)
-                        |> Seq.pick pick_wrt_req_alg
-            in
+let for_key_encryption (sigkeyalgs : list<Sig.alg>) (h : hint) =
+            match (find_enccert sigkeyalgs h) with
+            | Some(x509) ->
                 match x509_to_secret_key x509, x509_to_public_key x509 with
-                | Some skey, Some pkey ->
+                | Some (CoreSig.SK_RSA(smse)), Some(CoreSig.PK_RSA(pmpe)) ->
+                    let (sm,se)=smse in
+                    let (pm,pe)=pmpe in
                     let chain = x509_chain x509 in
 
-                    if Seq.forall (x509_check_key_sig_alg_one sigkeyalgs) chain then
-                        Some (chain |> List.map x509_export_public, alg, Sig.coerce alg (Sig.create_pkey alg pkey) skey)
+                    if forall (x509_check_key_sig_alg_one sigkeyalgs) chain then
+                        let pk = RSAKey.create_rsapkey (pmpe) in
+                        #if ideal
+                        if RSAKey.honest pk then
+                            None //loading of honest keys not implemented yet.
+                        else
+                            let csk = CoreACiphers.RSASKey(smse)
+                            let sk = RSAKey.coerce pk csk
+                            Some (x509list_to_chain chain, sk)
+                        #else
+                        Some (x509list_to_chain chain, RSAKey.coerce pk (CoreACiphers.RSASKey(smse)))
+                        #endif
                     else
                         None
                 | None, _ -> None
                 | _, None -> None
-        with :? KeyNotFoundException -> None
-    finally
-        store.Close()
+                | _, _ -> Error.unexpected "[for_key_encryption] unreachable pattern match"
+            | None -> None
 
 (* ------------------------------------------------------------------------ *)
-let for_key_encryption (sigkeyalgs : Sig.alg list) (h : hint) =
-    let store = new X509Store(StoreName.My, StoreLocation.CurrentUser) in
-
-    store.Open(OpenFlags.ReadOnly ||| OpenFlags.OpenExistingOnly)
-    try
-        try
-            let x509 =
-                store.Certificates.Find(X509FindType.FindBySubjectName, h, false)
-                    |> Seq.cast
-                    |> Seq.filter (fun (x509 : X509Certificate2) -> x509_verify x509)
-                    |> Seq.filter (fun (x509 : X509Certificate2) -> x509.HasPrivateKey)
-                    |> Seq.filter (fun (x509 : X509Certificate2) -> x509_is_for_key_encryption x509)
-                    |> Seq.filter (fun (x509 : X509Certificate2) -> x509.GetKeyAlgorithm() = OID_RSAEncryption)
-                    |> Seq.filter (x509_check_key_sig_alg_one sigkeyalgs)
-                    |> Seq.pick   Some
-            in
-                match x509_to_secret_key x509 with
-                | Some (CoreSig.SK_RSA(sm, se)) ->
-                    let chain = x509_chain x509 in
-
-                    if Seq.forall (x509_check_key_sig_alg_one sigkeyalgs) chain then
-                        Some (chain |> List.map x509_export_public, RSAKey.create_rsaskey (sm, se))
-                    else
-                        None
-                | _ -> None
-        with
-        | :? KeyNotFoundException -> None
-    finally
-        store.Close()
-
-(* ------------------------------------------------------------------------ *)
-let is_for_signing (c : cert) =
-    try
-        x509_is_for_signing (new X509Certificate2(cbytes c))
-    with :? CryptographicException -> false
-
-let is_for_key_encryption (c : cert) =
-    try
-        x509_is_for_key_encryption (new X509Certificate2(cbytes c))
-    with :? CryptographicException -> false
-
-(* ------------------------------------------------------------------------ *)
-let is_chain_for_signing (chain : chain) =
-    match chain with [] -> false| c :: _ -> is_for_signing c
-
-let is_chain_for_key_encryption (chain : chain) =
-    match chain with [] -> false| c :: _ -> is_for_key_encryption c
-
-(* ------------------------------------------------------------------------ *)
-let get_public_signing_key (c : cert) ((siga, _) as a : Sig.alg) : Sig.pkey Result =
-    try
-        let x509 = new X509Certificate2(cbytes c) in
+let get_public_signing_key (c : cert) ((siga, _) as a : Sig.alg) : Result<Sig.pkey> =
+    match cert_to_x509 c with
+    | Some(x509) ->
             if x509_is_for_signing x509 then
                 match siga, x509_to_public_key x509 with
-                | SA_RSA, Some (CoreSig.PK_RSA (sm, se) as k) -> Correct (Sig.create_pkey a k)
-                | SA_DSA, Some (CoreSig.PK_DSA (y, p  ) as k) -> Correct (Sig.create_pkey a k)
+                | SA_RSA, Some (k) -> Correct (Sig.create_pkey a k)
+                | SA_DSA, Some (k) -> Correct (Sig.create_pkey a k)
                 | _ -> Error(AD_unsupported_certificate_fatal, perror __SOURCE_FILE__ __LINE__ "Certificate uses unknown signature algorithm or key")
             else
                 Error(AD_bad_certificate_fatal, perror __SOURCE_FILE__ __LINE__ "Certificate is not for signing")
-    with :? CryptographicException -> Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
+    | None -> Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
 
-let get_public_encryption_key (c : cert) : RSAKey.pk Result =
-    try
-        let x509 = new X509Certificate2(cbytes c) in
+let get_public_encryption_key (c : cert) : Result<RSAKey.pk> =
+    match cert_to_x509 c with
+    | Some(x509) ->
             if x509_is_for_key_encryption x509 then
                 match x509_to_public_key x509 with
                 | Some (CoreSig.PK_RSA(pm, pe)) -> Correct (RSAKey.create_rsapkey (pm, pe))
                 | _ -> Error(AD_unsupported_certificate_fatal, perror __SOURCE_FILE__ __LINE__ "Certificate uses unknown key")
             else
                 Error(AD_bad_certificate_fatal, perror __SOURCE_FILE__ __LINE__ "Certificate is not for key encipherment")
-    with :? CryptographicException -> Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
+    | None -> Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
 
 (* ------------------------------------------------------------------------ *)
+
+#if verify
+let get_chain_public_signing_key (chain : chain) (a:Sig.alg) : Result<Sig.pkey> =
+    failwith "unverified"
+
+let get_chain_public_encryption_key (chain : chain) : Result<RSAKey.pk>=
+    failwith "unverified"
+
+#else
 let get_chain_public_signing_key (chain : chain) a =
     match chain with
     | []     -> Error(AD_internal_error, perror __SOURCE_FILE__ __LINE__ "This is likely a bug, please report it")
@@ -266,85 +136,66 @@ let get_chain_public_encryption_key (chain : chain) =
     match chain with
     | []     -> Error(AD_internal_error, perror __SOURCE_FILE__ __LINE__ "This is likely a bug, please report it")
     | c :: _ -> get_public_encryption_key c
+#endif
+
+let signing_gen (a:Sig.alg) : Sig.pkey =
+    let pk,sk = Sig.gen a
+    pk
 
 (* ------------------------------------------------------------------------ *)
-let get_chain_key_algorithm (chain : chain) =
-    match chain with
-    | []     -> None
-    | c :: _ ->
-        try
-            let x509 = new X509Certificate2(cbytes c) in
-                match x509.GetKeyAlgorithm () with
-                | x when x = OID_RSAEncryption   -> Some SA_RSA
-                | x when x = OID_DSASignatureKey -> Some SA_DSA
-                | _ -> None
-        with :? CryptographicException -> None
+
+let validate_cert_chain (sigkeyalgs : list<Sig.alg>) (chain : chain) =
+    validate_x509_chain sigkeyalgs chain
 
 (* ------------------------------------------------------------------------ *)
-let rec validate_x509_chain (c : X509Certificate2) (issuers : X509Certificate2 list) =
-    try
-        let chain = new X509Chain () in
-            chain.ChainPolicy.ExtraStore.AddRange(List.toArray issuers);
-            chain.ChainPolicy.RevocationMode <- X509RevocationMode.NoCheck;
-
-            if not (chain.Build(c)) then
-                false
-            else
-                let eq_thumbprint (c1 : X509Certificate2) (c2 : X509Certificate2) =
-                    c1.Thumbprint = c2.Thumbprint
-                in
-
-                let certschain =
-                    chain.ChainElements
-                        |> Seq.cast
-                        |> (Seq.map (fun (ce : X509ChainElement) -> ce.Certificate))
-                        |> Seq.toList
-                in
-                    (certschain.Length >= issuers.Length)
-                    && Seq.forall2 eq_thumbprint certschain issuers
-
-    with :? CryptographicException -> false
+#if verify
+let get_hint (chain : chain) : option<hint> =
+    failwith "unverified"
+#else
+let get_hint (chain : chain) : option<hint> =
+    match chain_to_x509list chain with
+    | Some x509list ->
+        match x509list with
+        | []     -> None
+        | c :: _ -> Some (get_name_info c)
+    | None -> None
+#endif
 
 (* ------------------------------------------------------------------------ *)
-let validate_cert_chain (sigkeyalgs : Sig.alg list) (chain : chain) =
-    match chain with
-    | []           -> false
-    | c :: issuers ->
-        try
-            let c       = new X509Certificate2(cbytes c) in
-            let issuers = List.map (fun (c : cert) -> new X509Certificate2(cbytes c)) chain in
-                Seq.forall (x509_check_key_sig_alg_one sigkeyalgs) (c :: issuers)
-                && validate_x509_chain c issuers
+let is_chain_for_signing (chain : chain) =
+    match chain with [] -> false| c :: _ -> is_for_signing c
 
-        with :? CryptographicException ->
-            false
-
-(* ------------------------------------------------------------------------ *)
-let get_hint (chain : chain) =
-    let chain = List.map (fun (c : cert) -> new X509Certificate2(cbytes c)) chain in
-
-    match chain with
-    | []     -> None
-    | c :: _ -> Some (c.GetNameInfo (X509NameType.SimpleName, false)) (* FIX *)
+let is_chain_for_key_encryption (chain : chain) =
+    match chain with [] -> false| c :: _ -> is_for_key_encryption c
 
 (* ---- TLS-specific encoding ---- *)
 let consCertificateBytes c a =
     let cert = vlbytes 3 c in
     cert @| a
 
+#if verify
+let certificateListBytes (certs: chain) : bytes =
+    failwith "unverified"
+
+let parseCertificateListInt (toProcess:bytes) (list:chain) : Result<chain> =
+    failwith "unverified"
+#else
 let certificateListBytes certs =
     let unfolded = List.foldBack consCertificateBytes certs empty_bytes in
     vlbytes 3 unfolded
 
-let rec parseCertificateList toProcess list =
+let rec parseCertificateListInt toProcess parsed =
     if equalBytes toProcess empty_bytes then
-        correct(list)
+        correct(parsed)
     else
         if length toProcess >= 3 then
             match vlsplit 3 toProcess with
             | Error(x,y) -> Error(AD_bad_certificate_fatal, perror __SOURCE_FILE__ __LINE__ y)
             | Correct (res) ->
                 let (nextCert,toProcess) = res in
-                let list = list @ [nextCert] in
-                parseCertificateList toProcess list
+                let parsed = parsed @ [nextCert] in
+                parseCertificateListInt toProcess parsed
         else Error(AD_decode_error, perror __SOURCE_FILE__ __LINE__ "")
+
+let parseCertificateList toProcess = parseCertificateListInt toProcess []
+#endif

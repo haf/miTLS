@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -65,7 +65,8 @@ type TLStream (s:System.IO.Stream, options, b, ?own, ?sessionID) =
                 | TLS.Fatal ad -> closed <- true; raise (IOException(sprintf "TLS-HS: Received fatal alert: %A" ad))
                 | TLS.Warning (conn,ad) -> closed <- true; raise (IOException(sprintf "TLS-HS: Received warning alert: %A" ad))
                 | TLS.CertQuery (conn,q,advice) -> closed <- true; raise (IOException(sprintf "TLS-HS: Asked to authorize a certificate twice"))
-                | TLS.Handshaken conn -> closed <- false; conn
+                | TLS.CompletedFirst conn
+                | TLS.CompletedSecond conn -> closed <- false; conn
                 | TLS.Read (conn,msg) ->
                     let b = undoMsg_i conn msg
                     inbuf <- inbuf @| b
@@ -75,7 +76,8 @@ type TLStream (s:System.IO.Stream, options, b, ?own, ?sessionID) =
                 TLS.refuse conn q
                 closed <- true
                 raise (IOException(sprintf "TLS-HS: Refusing untrusted certificate"))
-        | TLS.Handshaken conn -> closed <- false; conn
+        | TLS.CompletedFirst conn
+        | TLS.CompletedSecond conn -> closed <- false; conn
         | TLS.Read (conn,msg) ->
             let b = undoMsg_i conn msg
             inbuf <- inbuf @| b
@@ -89,7 +91,7 @@ type TLStream (s:System.IO.Stream, options, b, ?own, ?sessionID) =
             match adOpt with
             | None -> raise (IOException(sprintf "TLS-HS: Internal error: %A" err))
             | Some ad -> raise (IOException(sprintf "TLS-HS: Sent fatal alert: %A %A" ad err))
-        | TLS.Close ns -> closed <- true; (conn,empty_bytes) // This is a closed connection, should not be used!
+        | TLS.Close ns -> closed <- true; (conn,empty_bytes)
         | TLS.Fatal ad -> closed <- true; raise (IOException(sprintf "TLS-HS: Received fatal alert: %A" ad))
         | TLS.Warning (conn,ad) -> closed <- true; raise (IOException(sprintf "TLS-HS: Received warning alert: %A" ad))
         | TLS.CertQuery (conn,q,advice) ->
@@ -100,11 +102,12 @@ type TLStream (s:System.IO.Stream, options, b, ?own, ?sessionID) =
                     match adOpt with
                     | None -> raise (IOException(sprintf "TLS-HS: Internal error: %A" err))
                     | Some ad -> raise (IOException(sprintf "TLS-HS: Sent fatal alert: %A %A" ad err))
-                | TLS.Close ns -> closed <- true; (conn,empty_bytes) // This is a closed connection, should not be used!
+                | TLS.Close ns -> closed <- true; (conn,empty_bytes)
                 | TLS.Fatal ad -> closed <- true; raise (IOException(sprintf "TLS-HS: Received fatal alert: %A" ad))
                 | TLS.Warning (conn,ad) -> closed <- true; raise (IOException(sprintf "TLS-HS: Received warning alert: %A" ad))
                 | TLS.CertQuery (conn,q,advice) -> closed <- true; raise (IOException(sprintf "TLS-HS: Asked to authorize a certificate twice"))
-                | TLS.Handshaken conn -> closed <- false; wrapRead conn
+                | TLS.CompletedFirst conn
+                | TLS.CompletedSecond conn -> closed <- false; wrapRead conn
                 | TLS.Read (conn,msg) ->
                     let read = undoMsg_i conn msg in
                     if equalBytes read empty_bytes then
@@ -117,7 +120,8 @@ type TLStream (s:System.IO.Stream, options, b, ?own, ?sessionID) =
                 TLS.refuse conn q
                 closed <- true
                 raise (IOException(sprintf "TLS-HS: Asked to authorize a certificate"))
-        | TLS.Handshaken conn -> closed <- false; wrapRead conn
+        | TLS.CompletedFirst conn
+        | TLS.CompletedSecond conn -> closed <- false; wrapRead conn
         | TLS.Read (conn,msg) ->
             let read = undoMsg_i conn msg in
             if equalBytes read empty_bytes then
@@ -127,14 +131,23 @@ type TLStream (s:System.IO.Stream, options, b, ?own, ?sessionID) =
                 (conn,read)
         | TLS.DontWrite conn -> wrapRead conn
 
-    let rec wrapWrite conn msg =
+    let rec wrapWrite conn (rg,d) =
+        let rg0,rg1 = DataStream.splitRange (TLS.getEpochOut conn) rg in
+        let msg,rem =
+            if rg0 = rg then
+                (rg,d),None
+            else
+                let d0,d1 = DataStream.split (TLS.getEpochOut conn) (TLS.getOutStream conn) rg0 rg1 d in
+                (rg0,d0),Some(rg1,d1)
         match TLS.write conn msg with
         | TLS.WriteError (adOpt,err) ->
             match adOpt with
             | None -> raise (IOException(sprintf "TLS-HS: Internal error: %A" err))
             | Some ad -> raise (IOException(sprintf "TLS-HS: Sent alert: %A %A" ad err))
-        | TLS.WriteComplete conn -> conn
-        | TLS.WritePartial (conn,msg) -> wrapWrite conn msg
+        | TLS.WriteComplete conn ->
+            match rem with
+            | None -> conn
+            | Some(msg) -> wrapWrite conn msg
         | TLS.MustRead conn ->
             let conn = doHS conn
             wrapWrite conn msg
@@ -156,10 +169,14 @@ type TLStream (s:System.IO.Stream, options, b, ?own, ?sessionID) =
         if closed then
             raise (IOException("Trying to get SessionInfo on a closed connection."))
         (* We could also pick the outgoing epoch.
-            * The user can only access an open connection, so epochs
-            * are synchronized. *)
+         * The user can only access an open connection, so epochs
+         * are synchronized. *)
         let epoch = TLS.getEpochIn conn in
         TLS.getSessionInfo epoch
+
+    member self.GetSessionInfoString() =
+        let si = self.GetSessionInfo() in
+        TLSInfo.sinfo_to_string si
 
     member self.ReHandshake (?config) =
         let config = defaultArg config options
@@ -205,7 +222,7 @@ type TLStream (s:System.IO.Stream, options, b, ?own, ?sessionID) =
                     if equalBytes inbuf empty_bytes then
                         (* Read from the socket, and possibly buffer some data *)
                         let (c,data) = wrapRead conn
-                            // Fixme: is data is empty_bytes we should set conn to "null" (which we cannot)
+
                         conn <- c
                         data
                     else (* Use the buffer *)

@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -23,33 +23,38 @@ type clientExtension
 type serverExtension
 
 // Client side
-val clientExtensionsBytes: clientExtension list -> bytes
-val prepareClientExtensions: config -> ConnectionInfo -> cVerifyData -> cVerifyData option -> clientExtension list
-val parseServerExtensions: bytes -> (serverExtension list) Result
-val negotiateClientExtensions: clientExtension list -> serverExtension list -> bool -> negotiatedExtensions Result
+val prepareClientExtensions: config -> ConnectionInfo -> cVerifyData -> option<sessionHash> -> list<clientExtension>
+val clientExtensionsBytes: list<clientExtension> -> bytes
+val parseServerExtensions: bytes -> Result<(list<serverExtension>)>
+val negotiateClientExtensions: list<clientExtension> -> list<serverExtension> -> bool -> cipherSuite -> Result<negotiatedExtensions>
 
 // Server side
-val serverExtensionsBytes: serverExtension list -> bytes
-val negotiateServerExtensions: clientExtension list -> config -> ConnectionInfo -> (cVerifyData * sVerifyData) -> (cVerifyData * sVerifyData) option -> (serverExtension list * negotiatedExtensions)
-val parseClientExtensions: bytes -> cipherSuites -> (clientExtension list) Result
+val parseClientExtensions: bytes -> cipherSuites -> Result<(list<clientExtension>)>
+val negotiateServerExtensions: list<clientExtension> -> config -> cipherSuite -> (cVerifyData * sVerifyData) -> option<sessionHash> -> (list<serverExtension> * negotiatedExtensions)
+val serverExtensionsBytes: list<serverExtension> -> bytes
 
 // Extension-specific
-val checkClientRenegotiationInfoExtension: config -> clientExtension list -> cVerifyData -> bool
-val checkServerRenegotiationInfoExtension: config -> serverExtension list -> cVerifyData -> sVerifyData -> bool
+val checkClientRenegotiationInfoExtension: config -> list<clientExtension> -> cVerifyData -> bool
+val checkServerRenegotiationInfoExtension: config -> list<serverExtension> -> cVerifyData -> sVerifyData -> bool
+val checkClientResumptionInfoExtension:    config -> list<clientExtension> -> sessionHash -> option<bool>
+val checkServerResumptionInfoExtension:    config -> list<serverExtension> -> sessionHash -> bool
+
+val hasExtendedMS: negotiatedExtensions -> bool
+val hasExtendedPadding: id -> bool
 
 // type extensionType
 //
 // val extensionsBytes: bool -> bytes -> bytes
-// val parseExtensions: bytes -> (extensionType * bytes) list Result
-// val inspect_ServerHello_extensions: (extensionType * bytes) list -> bytes -> unit Result
-// val checkClientRenegotiationInfoExtension: (extensionType * bytes) list -> TLSConstants.cipherSuites -> bytes -> bool
+// val parseExtensions: bytes -> Result<list<(extensionType * bytes)>>
+// val inspect_ServerHello_extensions: list<(extensionType * bytes)> -> bytes -> Result<unit>
+// val checkClientRenegotiationInfoExtension: list<(extensionType * bytes)> -> TLSConstants.cipherSuites -> bytes -> bool
 
 val sigHashAlgBytes: Sig.alg -> bytes
-val parseSigHashAlg: bytes -> Sig.alg Result
-val sigHashAlgListBytes: Sig.alg list -> bytes
-val parseSigHashAlgList: bytes -> Sig.alg list Result
-val default_sigHashAlg: ProtocolVersion -> cipherSuite -> Sig.alg list
-val sigHashAlg_contains: Sig.alg list -> Sig.alg -> bool
-val cert_type_list_to_SigHashAlg: certType list -> ProtocolVersion -> Sig.alg list
-val cert_type_list_to_SigAlg: certType list -> sigAlg list
-val sigHashAlg_bySigList: Sig.alg list -> sigAlg list -> Sig.alg list
+val parseSigHashAlg: bytes -> Result<Sig.alg>
+val sigHashAlgListBytes: list<Sig.alg> -> bytes
+val parseSigHashAlgList: bytes -> Result<list<Sig.alg>>
+val default_sigHashAlg: ProtocolVersion -> cipherSuite -> list<Sig.alg>
+val sigHashAlg_contains: list<Sig.alg> -> Sig.alg -> bool
+val cert_type_list_to_SigHashAlg: list<certType> -> ProtocolVersion -> list<Sig.alg>
+val cert_type_list_to_SigAlg: list<certType> -> list<sigAlg>
+val sigHashAlg_bySigList: list<Sig.alg> -> list<sigAlg> -> list<Sig.alg>

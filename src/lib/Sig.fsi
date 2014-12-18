@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -25,11 +25,9 @@ type sigv = bytes
 type skey
 type pkey
 
-//val create_skey: hashAlg -> CoreSig.sigskey -> skey
-val create_pkey: alg -> CoreSig.sigpkey -> pkey
+val honest: alg -> pkey -> bool
 
-//val repr_of_skey: skey -> CoreSig.sigskey * hashAlg
-//val repr_of_pkey: pkey -> CoreSig.sigpkey * hashAlg
+val create_pkey: alg -> CoreSig.sigpkey -> pkey
 
 val sigalg_of_skeyparams : CoreSig.sigskey -> sigAlg
 val sigalg_of_pkeyparams : CoreSig.sigpkey -> sigAlg

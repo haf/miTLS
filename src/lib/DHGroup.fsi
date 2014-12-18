@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -14,9 +14,13 @@ module DHGroup
 
 open Bytes
 
-type p = bytes
+type p   = bytes
+type q   = bytes
 type elt = bytes
-type g = elt
+type g   = elt
 
-val genElement: p -> g -> elt
-val checkElement: p -> bytes -> elt option
+type preds = Elt of p * g * bytes
+
+val genElement: p -> g -> option<q> -> elt
+val checkElement: p -> g -> bytes -> option<elt>
+val dhparams: p -> g -> option<q> -> CoreKeys.dhparams

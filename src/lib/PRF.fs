@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -86,32 +86,27 @@ let deriveRawKeys (i:id) (ms:ms)  =
             let ck = (cmkb @| cekb @| civb) in
             let sk = (smkb @| sekb @| sivb) in
             (ck,sk)
+#if verify
+#else
+(* AEAD currently not fully implemented or verified *)
     | AEAD(encAlg,prf) ->
-        let aksize = aeadKeySize encAlg in
-        let ivsize = aeadIVSize encAlg in
-        let cekb, b = split b aksize in
-        let sekb, b = split b aksize in
-        let civb, sivb = split b ivsize in
-        let ck = (cekb @| civb) in
-        let sk = (sekb @| sivb) in
-        (ck,sk)
-
-let deriveKeys rdId wrId (ms:masterSecret) role  =
-    // at this step, we should idealize if SafeMS
-    let (ck,sk) = deriveRawKeys rdId ms
-    match role with
-    | Client ->
-         StatefulLHAE.COERCE rdId Reader sk,
-         StatefulLHAE.COERCE wrId Writer ck
-    | Server ->
-         StatefulLHAE.COERCE rdId Reader ck,
-         StatefulLHAE.COERCE wrId Writer sk
+        match encAlg with
+        | AES_128_GCM | AES_256_GCM ->
+            let aksize = aeadKeySize encAlg in
+            let ivsize = aeadIVSize encAlg in
+            let cekb, b = split b aksize in
+            let sekb, b = split b aksize in
+            let civb, sivb = split b ivsize in
+            let ck = (cekb @| civb) in
+            let sk = (sekb @| sivb) in
+            (ck,sk)
+#endif
 
 type derived = StatefulLHAE.reader * StatefulLHAE.writer
 
 type state =
   | Init
-  | Committed of ProtocolVersion * aeAlg
+  | Committed of ProtocolVersion * aeAlg * negotiatedExtensions
   | Derived of id * id * derived
 //  | Done
 //  | Wasted
@@ -121,29 +116,29 @@ type state =
 type event = Mismatch of id
 
 type kdentry = csrands * state
-let kdlog : kdentry list ref = ref []
+let kdlog : ref<list<kdentry>> = ref []
 
-let rec read csr (entries: kdentry list)  =
+let rec read csr (entries: list<kdentry>)  =
   match entries with
   | []                                 -> Init
   | (csr', s)::entries when csr = csr' -> s
   | (csr', s)::entries                 -> read csr entries
 
-let rec update csr s (entries: kdentry list) =
+let rec update csr s (entries: list<kdentry>) =
   match entries with
   | []                                  -> [(csr,s)]
   | (csr', s')::entries when csr = csr' -> (csr,s)   :: entries
   | (csr', s')::entries                 -> (csr', s'):: update csr s entries
 
-let commit csr pv a = Committed(pv,a)
+let commit csr pv a ext = Committed(pv,a,ext)
 #endif
 
-let keyCommit (csr:csrands) (pv:ProtocolVersion) (a:aeAlg) : unit =
+let keyCommit (csr:csrands) (pv:ProtocolVersion) (a:aeAlg) (ext:negotiatedExtensions) : unit =
   #if ideal
   match read csr !kdlog with
   | Init ->
-      Pi.assume(KeyCommit(csr,pv,a));
-      let state = commit csr pv a
+      Pi.assume(KeyCommit(csr,pv,a,ext));
+      let state = commit csr pv a ext
       kdlog := update csr state !kdlog
   | _    ->
       Error.unexpected "prevented by freshness of the server random"
@@ -154,28 +149,41 @@ let keyCommit (csr:csrands) (pv:ProtocolVersion) (a:aeAlg) : unit =
 let wrap (rdId:id) (wrId:id) r w = (r,w)
 let wrap2 (a:id) (b:id) rw csr = Derived(a,b,rw)
 
-let keyGenClient (rdId:id) (wrId) ms =
+let deriveKeys rdId wrId (ms:masterSecret) role  =
+    let (ck,sk) = deriveRawKeys rdId ms
+    match role with
+    | Client ->
+         wrap rdId wrId
+            (StatefulLHAE.COERCE rdId Reader sk)
+            (StatefulLHAE.COERCE wrId Writer ck)
+    | Server ->
+         wrap rdId wrId
+            (StatefulLHAE.COERCE rdId Reader ck)
+            (StatefulLHAE.COERCE wrId Writer sk)
+
+let keyGenClient (rdId:id) (wrId:id) ms =
     #if ideal
     let pv = pv_of_id rdId
     let aeAlg = rdId.aeAlg
     let csr = rdId.csrConn
-    Pi.assume(KeyGenClient(csr,pv,aeAlg));
+    let ext = rdId.ext
+    Pi.assume(KeyGenClient(csr,pv,aeAlg,ext));
     match read csr !kdlog with
     | Init ->
         // the server commits only on fresh SRs
         // hence we will never have Match(csr)
         Pi.assume(Mismatch(rdId));
         deriveKeys rdId wrId ms Client
-    | Committed(pv',aeAlg') when pv=pv' && aeAlg=aeAlg' && safeKDF(rdId) ->
+    | Committed(pv',aeAlg',ext') when pv=pv' && aeAlg=aeAlg' && ext=ext' && safeKDF(rdId) ->
         // we idealize the key derivation;
         // from this point AuthId and SafeId are fixed.
         let (myRead,peerWrite) = StatefulLHAE.GEN rdId
         let (peerRead,myWrite) = StatefulLHAE.GEN wrId
-        let peer = wrap rdId wrId peerRead peerWrite
+        let peer = wrap wrId rdId peerRead peerWrite
         let state = wrap2 wrId rdId peer csr
         kdlog := update csr state !kdlog;
         (myRead,myWrite)
-    | Committed(pv',aeAlg') ->
+    | Committed(pv',aeAlg',ext') ->
         // we logically deduce not Auth for both indexes
         deriveKeys rdId wrId ms Client
     | Derived(_,_,_) ->
@@ -190,8 +198,8 @@ let keyGenServer (rdId:id) (wrId:id) ms =
     match read csr !kdlog with
     | Init ->
         Error.unexpected "Excluded by usage restriction (affinity)"
-    | Committed(pv',aeAlg') ->
-        // when SafeKDF, the client keyGens only on a fresh Ids,
+    | Committed(pv',aeAlg',ext') ->
+        // when SafeKDF, the client keyGens only on fresh Ids,
         // hence we will never have AuthId(rdId) for this csr.
 
         Pi.assume(Mismatch(rdId));
@@ -220,14 +228,23 @@ type text = bytes
 type tag = bytes
 
 #if ideal
-type entry = msId * Role * text
-let log : entry list ref = ref []
 
-let rec mem (i:msId) (r:Role) (t:text) (es:entry list) =
+type eventVD = MakeVerifyData of msId * Role * text * tag
+
+type entry = msId * Role * text * tag
+let log : ref<list<entry>> = ref []
+
+let rec mem (i:msId) (r:Role) (t:text) (es:list<entry>) =
   match es with
   | [] -> false
-  | (i',role,text)::es when i=i' && r=role && text=t -> true
-  | (i',role,text)::es -> mem i r t es
+  | (i',role,text,_)::es when i=i' && r=role && text=t -> true
+  | (i',role,text,_)::es -> mem i r t es
+
+let rec assoc (r:Role) (vd:tag) (es:list<entry>) =
+  match es with
+  | [] -> None
+  | (i',role,text,tag)::es when r=role && vd=tag -> Some(i',text)
+  | (i',role,text,_)::es -> assoc r vd es
 #endif
 
 let private verifyData si ms role data =
@@ -236,11 +253,17 @@ let private verifyData si ms role data =
 let makeVerifyData si (ms:masterSecret) role data =
   let tag = verifyData si ms role data in
   #if ideal
-  if safeVD si then
-    let i = msi si
-    log := (i,role,data)::!log ;
+  //if safeVD si then  //MK rename predicate and function
+  let i = msi si
+  let msdataoption = assoc role tag !log
+  let msdata = (i,data) in
+  if msdataoption<>None && msdataoption<>Some(msdata) then
+    failwith "collision";
+  else
+    Pi.assume(MakeVerifyData(i, role, data, tag));
+    log := (i,role,data,tag)::!log
   #endif
-  tag
+    tag
 
 let checkVerifyData si ms role data tag =
   let computed = verifyData si ms role data

@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -14,6 +14,7 @@ module LHAEPlain
 open Bytes
 open TLSInfo
 open Range
+open TLSError
 
 type adata = bytes
 type fragment
@@ -26,6 +27,9 @@ val makeAD: id -> StatefulPlain.history -> StatefulPlain.adata -> adata
 val parseAD: id -> adata -> StatefulPlain.adata
 val StatefulPlainToLHAEPlain: id -> StatefulPlain.history -> StatefulPlain.adata -> adata -> range -> StatefulPlain.plain -> plain
 val LHAEPlainToStatefulPlain: id -> StatefulPlain.history -> StatefulPlain.adata -> adata -> range -> plain -> StatefulPlain.plain
+
+val makeExtPad:  id -> adata -> range -> plain -> plain
+val parseExtPad: id -> adata -> range -> plain -> Result<plain>
 
 #if ideal
 val widen: id -> adata -> range -> fragment -> fragment

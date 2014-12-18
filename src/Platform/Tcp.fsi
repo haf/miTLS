@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -37,7 +37,6 @@ val connect: string -> int -> NetworkStream
 
 (* Input/Output *)
 
-// val dataAvailable: NetworkStream -> bool Result
 val read: NetworkStream -> int -> (string,bytes) OptResult
 val write: NetworkStream -> bytes -> (string,unit) OptResult
 val close: NetworkStream -> unit

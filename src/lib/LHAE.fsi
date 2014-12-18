@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -32,4 +32,4 @@ val LEAK: id -> rw -> LHAEKey -> bytes
 val encrypt: id -> encryptor -> adata ->
              range -> plain -> (encryptor * cipher)
 val decrypt: id -> decryptor -> adata ->
-             cipher -> (decryptor * range * plain) Result
+             cipher -> Result<(decryptor * range * plain)>

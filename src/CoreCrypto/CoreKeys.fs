@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -23,7 +23,7 @@ type dsaparams = { p : bytes; q : bytes; g : bytes; }
 type dsapkey = bytes * dsaparams
 type dsaskey = bytes * dsaparams
 
-type dhparams = { p : bytes; g : bytes }
+type dhparams = { p : bytes; g : bytes; q : bytes option }
 
 type dhpbytes = bytes
 type dhsbytes = bytes

@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -15,6 +15,8 @@ open Bytes
 open TLSInfo
 open Range
 open DataStream
+open Error
+open TLSError
 
 #if ideal
 type fpred = DeltaFragment of epoch * stream * range * delta
@@ -33,12 +35,15 @@ let fragment e s r d =
     let s' = append e s r d in
     (f,s')
 
+let check (e:epoch) (e':epoch) = ()
+
 let delta e s r f =
     let (e',s',d) = f.frag in
-
+    // the following idealization is reindexing.
     #if ideal
     if auth e then
-      // typechecking relies on proving that e = e' & s = s'. How?
+      // typechecking relies on e = e' & s = s':
+      // they both follow from Auth(e), implying Sent(e,s,r,f) hence ?d. f.frag = (e,s,d)
       let s'' = append e s r d in
       (d,s'')
     else
@@ -53,6 +58,7 @@ let delta e s r f =
       let s'' = append e s r d in
       (d,s'')
     #endif
+
 let plain i r b =
   let e = TLSInfo.unAuthIdInv i in
   let s = DataStream.init e in
@@ -62,6 +68,12 @@ let plain i r b =
 let repr (i:id) r f =
   let (e',s,d) = f.frag in
   DataStream.deltaRepr e' s r d
+
+let makeExtPad (i:id) (r:range) (f:fragment) =
+        f
+
+let parseExtPad (i:id) (r:range) (f:fragment) : Result<fragment> =
+        correct f
 
 #if ideal
 let widen (i:id) (r0:range) (f0:fragment) =

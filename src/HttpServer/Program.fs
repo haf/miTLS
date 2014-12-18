@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -33,6 +33,11 @@ let tlsoptions sessionDBDir serverName clientName = {
         TLSConstants.cipherSuites_of_nameList [
             TLSConstants.TLS_RSA_WITH_AES_128_CBC_SHA;
             TLSConstants.TLS_RSA_WITH_3DES_EDE_CBC_SHA;
+            TLSConstants.TLS_DHE_RSA_WITH_AES_128_CBC_SHA;
+            TLSConstants.TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA;
+            TLSConstants.TLS_RSA_WITH_RC4_128_SHA;
+            TLSConstants.TLS_DHE_RSA_WITH_AES_128_GCM_SHA256;
+            TLSConstants.TLS_RSA_WITH_AES_128_GCM_SHA256;
         ]
 
     TLSInfo.compressions = [ TLSConstants.NullCompression ]
@@ -43,6 +48,7 @@ let tlsoptions sessionDBDir serverName clientName = {
     TLSInfo.request_client_certificate = match clientName with | None -> false | Some(_) -> true
 
     TLSInfo.safe_renegotiation = true
+    TLSInfo.safe_resumption = false
 
     TLSInfo.server_name = serverName
     TLSInfo.client_name = match clientName with | None -> "" | Some(name) -> name
@@ -57,6 +63,7 @@ type options = {
     localaddr : IPEndPoint;
     localname : string;
     remotename: string option;
+    servname  : string;
 }
 
 exception ArgError of string
@@ -69,14 +76,16 @@ let cmdparse = fun () ->
     let defaultPort = 2443
     let defaultRoot = "htdocs"
     let defaultCert = "sessionDB"
-    let defaultName = "cert-01.mitls.org"
+    let defaultName = "mitls.example.org"
+    let defaultServ = "localhost"
 
     let options  = ref {
         rootdir   = Path.Combine(mypath, defaultRoot);
         certdir   = Path.Combine(mypath, defaultCert);
         localaddr = IPEndPoint(IPAddress.Loopback, defaultPort);
         localname = defaultName;
-        remotename= None }
+        remotename= None;
+        servname  = defaultServ; }
 
     let valid_path = fun path ->
         Directory.Exists path
@@ -108,10 +117,13 @@ let cmdparse = fun () ->
             raise (ArgError (sprintf "Invalid IP Address: %s" s))
 
     let o_localname = fun s ->
-        options := { !options with localname = s}
+        options := { !options with localname = s }
 
     let o_remotename = fun s ->
-        options := { !options with remotename = Some(s)}
+        options := { !options with remotename = Some(s) }
+
+    let o_servname = fun s ->
+        options := { !options with servname = s }
 
     let specs = [
         "--root-dir"     , ArgType.String o_rootdir   , sprintf "\t\tHTTP root directory (default `pwd`/%s)" defaultRoot
@@ -119,7 +131,8 @@ let cmdparse = fun () ->
         "--bind-port"    , ArgType.Int    o_port      , sprintf "\t\tlocal port (default %d)" defaultPort
         "--bind-address" , ArgType.String o_address   , "\tlocal address (default localhost)"
         "--local-name"   , ArgType.String o_localname , sprintf "\t\tlocal host name (default %s)" defaultName
-        "--remote-name"  , ArgType.String o_remotename, "\tremote client name (if any, default anonymous client)"]
+        "--remote-name"  , ArgType.String o_remotename, "\tremote client name (if any, default anonymous client)"
+        "--serv-name"    , ArgType.String o_servname  , "\tserver name (for HTTP redirections)"]
 
     let specs = specs |> List.map (fun (sh, ty, desc) -> ArgInfo(sh, ty, desc))
 
@@ -143,4 +156,5 @@ let _ =
             mimesmap   = mimesmap         ;
             localaddr  = options.localaddr;
             tlsoptions = Some tlsoptions  ;
+            servname   = options.servname ;
         }

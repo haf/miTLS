@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -26,8 +26,8 @@ val GEN: id -> encryptor * decryptor
 val COERCE: id -> rw -> bytes -> bytes -> state
 val LEAK: id -> rw -> state -> bytes
 
-val ENC: id -> encryptor -> LHAEPlain.adata -> range -> LHAEPlain.plain ->
-    (encryptor * bytes)
+val ENC: id -> encryptor -> LHAEPlain.adata -> range ->
+  LHAEPlain.plain -> (encryptor * bytes)
 
-val DEC: id -> decryptor -> LHAEPlain.adata -> range -> bytes ->
-    (decryptor * LHAEPlain.plain) Result
+val DEC: id -> decryptor -> LHAEPlain.adata -> range ->
+  bytes -> Result<(decryptor * LHAEPlain.plain)>

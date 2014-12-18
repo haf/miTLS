@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -20,7 +20,7 @@ type lbytes = bytes
 val empty_bytes: bytes
 val abytes: byte[] -> bytes
 val abyte: byte -> bytes
-val abyte2: byte * byte -> bytes
+val abyte2: (byte * byte) -> bytes
 val cbytes: bytes -> byte[]
 val cbyte: bytes -> byte
 val cbyte2: bytes -> byte * byte
@@ -43,5 +43,7 @@ val split2: bytes -> int -> int -> (bytes * bytes * bytes)
 (* strings *)
 val utf8: string -> bytes
 val iutf8: bytes -> string
+
+val hexString: bytes -> string
 
 val todo: string -> unit

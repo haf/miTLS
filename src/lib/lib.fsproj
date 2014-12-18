@@ -99,7 +99,7 @@
     <Optimize>False</Optimize>
     <Tailcalls>False</Tailcalls>
     <OutputPath>bin\Debug\</OutputPath>
-    <DefineConstants>TRACE;DEBUG</DefineConstants>
+    <DefineConstants>TRACE;DEBUG;TLSExt_extendedPadding; TLSExt_sessionHash</DefineConstants>
     <WarningLevel>3</WarningLevel>
     <DocumentationFile>
     </DocumentationFile>
@@ -112,11 +112,13 @@
     <Optimize>True</Optimize>
     <Tailcalls>True</Tailcalls>
     <OutputPath>bin\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
+    <DefineConstants>TRACE;TLSExt_extendedPadding; TLSExt_sessionHash</DefineConstants>
     <WarningLevel>3</WarningLevel>
     <DocumentationFile>bin\Release\lib.XML</DocumentationFile>
     <NoWarn>62</NoWarn>
     <DebugSymbols>False</DebugSymbols>
+    <OtherFlags>
+    </OtherFlags>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Ideal|AnyCPU' ">
     <DebugSymbols>False</DebugSymbols>
@@ -131,8 +133,6 @@
   <Import Project="$(MSBuildExtensionsPath32)\FSharp\1.0\Microsoft.FSharp.Targets" Condition="!Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
   <Import Project="$(MSBuildExtensionsPath32)\..\Microsoft F#\v4.0\Microsoft.FSharp.Targets" Condition=" Exists('$(MSBuildBinPath)\Microsoft.Build.Tasks.v4.0.dll')" />
   <ItemGroup>
-    <Content Include="README.txt" />
-    <Content Include="CodeReview.txt" />
     <Compile Include="pi.fs" />
     <None Include="TLSError.fs7" />
     <Compile Include="TLSError.fsi" />
@@ -161,12 +161,18 @@
     <None Include="Sig.fs7" />
     <Compile Include="Sig.fsi" />
     <Compile Include="Sig.fs" />
+    <None Include="UntrustedCert.fs7" />
+    <Compile Include="UntrustedCert.fsi" />
+    <Compile Include="UntrustedCert.fs" />
     <None Include="Cert.fs7" />
     <Compile Include="Cert.fsi" />
     <Compile Include="Cert.fs" />
     <None Include="TLSInfo.fs7" />
     <Compile Include="TLSInfo.fsi" />
     <Compile Include="TLSInfo.fs" />
+    <None Include="TLSExtensions.fs7" />
+    <Compile Include="TLSExtensions.fsi" />
+    <Compile Include="TLSExtensions.fs" />
     <None Include="TLSPRF.fs7" />
     <Compile Include="TLSPRF.fsi" />
     <Compile Include="TLSPRF.fs" />
@@ -203,9 +209,6 @@
     <None Include="Encode.fs7" />
     <Compile Include="Encode.fsi" />
     <Compile Include="Encode.fs" />
-    <None Include="ENC_RC4.fs7" />
-    <Compile Include="ENC_RC4.fsi" />
-    <Compile Include="ENC_RC4.fs" />
     <None Include="ENC.fs7" />
     <Compile Include="ENC.fsi" />
     <Compile Include="ENC.fs" />
@@ -227,21 +230,18 @@
     <None Include="PRF.fs7" />
     <Compile Include="PRF.fsi" />
     <Compile Include="PRF.fs" />
-    <None Include="CRE.fs7" />
-    <Compile Include="CRE.fsi" />
-    <Compile Include="CRE.fs" />
     <None Include="DH.fs7" />
     <Compile Include="DH.fsi" />
     <Compile Include="DH.fs" />
+    <None Include="KEF.fs7" />
+    <Compile Include="KEF.fsi" />
+    <Compile Include="KEF.fs" />
     <None Include="RSA.fs7" />
     <Compile Include="RSA.fsi" />
     <Compile Include="RSA.fs" />
     <None Include="SessionDB.fs7" />
     <Compile Include="SessionDB.fsi" />
     <Compile Include="SessionDB.fs" />
-    <None Include="TLSExtensions.fs7" />
-    <Compile Include="TLSExtensions.fsi" />
-    <Compile Include="TLSExtensions.fs" />
     <None Include="HandshakeMessages.fs7" />
     <Compile Include="HandshakeMessages.fs" />
     <None Include="Handshake.fs7" />
@@ -256,11 +256,14 @@
     <None Include="TLS.fs7" />
     <Compile Include="TLS.fsi" />
     <Compile Include="TLS.fs" />
+    <None Include="RPC.fs7" />
     <Compile Include="RPC.fsi" />
     <Compile Include="RPC.fs" />
     <None Include="UTLS.fs7" />
     <Compile Include="UTLS.fsi" />
     <Compile Include="UTLS.fs" />
+    <None Include="App.config" />
+    <None Include="genrules" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="BouncyCastle.Crypto">

@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -52,6 +52,7 @@ let config (servname : string) = {
 
     (* Common *)
     TLSInfo.safe_renegotiation = true
+    TLSInfo.safe_resumption = false
     TLSInfo.server_name = servname
     TLSInfo.client_name = ""
 
@@ -68,7 +69,8 @@ let read_server_response (c : Connection) (u : username) (tk : token) =
     | DontWrite  conn              -> TLS.half_shutdown conn; None
     | Warning    (conn, _)         -> TLS.half_shutdown conn; None
     | CertQuery  (conn, _, _)      -> TLS.half_shutdown conn; None
-    | Handshaken conn              -> TLS.half_shutdown conn; None
+    | CompletedFirst conn
+    | CompletedSecond conn         -> TLS.half_shutdown conn; None
     | Read       (conn, m)         ->
         let epoch       = TLS.getEpochIn c
         let stream      = TLS.getInStream c
@@ -97,12 +99,16 @@ let drain (c : Connection) =
         | DontWrite (c) -> Some c
         | Warning (c,_) -> TLS.half_shutdown c; None
         | CertQuery (c,_,_) -> TLS.half_shutdown c; None
-        | Handshaken (c) -> Some c
+        | CompletedFirst (c)
+        | CompletedSecond (c) -> Some c
         | Read (c,_) -> TLS.half_shutdown c; None
-    | Handshaken c              -> Some c
+    | CompletedFirst c
+    | CompletedSecond c         -> Some c
     | Read       (c, _)         -> TLS.half_shutdown c; None
 
 let rec do_request (c : Connection) (u : username) (tk : token) =
+    if MaxTkReprLen > TLSInfo.fragmentLength then
+        Error.unexpected "Refusing to send token that doesn't fit in one fragment"
     let epoch  = TLS.getEpochOut c
     let stream = TLS.getOutStream c
     let rg     = (0, MaxTkReprLen)
@@ -110,7 +116,6 @@ let rec do_request (c : Connection) (u : username) (tk : token) =
 
     match TLS.write c (rg, delta) with
     | WriteError    (_, _) -> None
-    | WritePartial  (c, _) -> TLS.half_shutdown c; None
     | MustRead      c      -> (match drain c with Some c -> do_request c u tk | None -> None)
     | WriteComplete c      -> read_server_response c u tk
 
@@ -124,6 +129,8 @@ let request (servname : string)  (u : username) (tk : token) =
 
 // ------------------------------------------------------------------------
 let rec do_client_response (conn : Connection) (clientok : bool) =
+    if MaxTkReprLen > TLSInfo.fragmentLength then
+        Error.unexpected "Refusing to send token that doesn't fit in one fragment"
     let epoch  = TLS.getEpochOut conn in
     let stream = TLS.getOutStream conn in
     let rg     = (0, MaxTkReprLen)
@@ -131,7 +138,6 @@ let rec do_client_response (conn : Connection) (clientok : bool) =
 
         match TLS.write conn (rg, delta) with
         | WriteError    (_, _)    -> None
-        | WritePartial  (conn, _) -> TLS.half_shutdown conn; None
         | MustRead      conn      -> TLS.half_shutdown conn; None
         | WriteComplete conn      -> Some conn
 
@@ -152,11 +158,13 @@ let rec handle_client_request (conn : Connection) =
             | DontWrite (_) -> None
             | Warning (conn,_) -> handle_client_request conn
             | CertQuery (_,_,_) -> None
-            | Handshaken (conn) -> handle_client_request conn
-            | Read(conn,m) -> None // should never happen
+            | CompletedFirst (conn)
+            | CompletedSecond (conn) -> handle_client_request conn
+            | Read(conn,m) -> None
         else
             refuse conn q; None
-    | Handshaken conn              -> handle_client_request conn
+    | CompletedFirst conn
+    | CompletedSecond conn         -> handle_client_request conn
     | Read       (conn, m)         ->
         let (r, d) = m in
         let epoch  = TLS.getEpochIn conn in

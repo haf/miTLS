@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -203,9 +203,13 @@ type HttpClientHandler (server : HttpServer, peer : TcpClient) =
                 rawstream <- peer.GetStream ();
                 match server.Config.tlsoptions with
                 | None ->
+                    HttpLogger.Info "Plaintext connection"
                     stream <- rawstream
                 | Some tlsoptions ->
-                    stream <- new TLStream(rawstream, tlsoptions, TLSServer)
+                    let s = new TLStream(rawstream, tlsoptions, TLSServer)
+                    HttpLogger.Info
+                        (sprintf "Secure connection:\n%s" (s.GetSessionInfoString()))
+                    stream <- s
                 reader <- new HttpStreamReader(stream);
                 while self.ReadAndServeRequest () do () done
             with

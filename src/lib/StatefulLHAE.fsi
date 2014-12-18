@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -23,13 +23,13 @@ type state
 type reader = state
 type writer = state
 
-val GEN:    id -> reader * writer
-val COERCE: id -> rw -> bytes -> state
-val LEAK:   id -> rw -> state -> bytes
+val GEN:     id -> reader * writer
+val COERCE:  id -> rw -> bytes -> state
+val LEAK:    id -> rw -> state -> bytes
 
 val history: id -> rw -> state -> history
 
 type cipher = LHAE.cipher
 
 val encrypt: id -> writer ->  adata -> range -> plain -> (writer * cipher)
-val decrypt: id -> reader ->  adata -> cipher -> (reader * range * plain) Result
+val decrypt: id -> reader ->  adata -> cipher -> Result<(reader * range * plain)>

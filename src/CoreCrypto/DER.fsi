@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -19,8 +19,6 @@ type dervalue =
     | Bytes      of bytes
     | Utf8String of string
     | Sequence   of dervalue list
-
-exception DerEncodingFailure
 
 val encode : dervalue -> bytes
 val decode : bytes -> dervalue option

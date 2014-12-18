@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -10,7 +10,7 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
-module CRE
+module KEF
 
 open Bytes
 open TLSConstants
@@ -19,17 +19,27 @@ open PMS
 open PRF
 
 // concrete PMS --> MS derivation.
+// this implements the KEF call in the "generic ms-KEM construction".
 
 val extract:
     si:SessionInfo ->
 	pms: pms { si.pmsId = PmsId(pms) } ->
     (;si) PRF.masterSecret
 
+val extract_extended:
+    si:SessionInfo ->
+	pms: pms { si.pmsId = PmsId(pms) } ->
+    (;si) PRF.masterSecret
+
 private val accessRSAPMS: pk:RSAKey.pk -> cv:ProtocolVersion -> (;pk,cv) rsapms -> rsarepr
-private val accessDHPMS: p:DHGroup.p -> g:(;p)DHGroup.g -> gx:(;p)DHGroup.elt -> gy:(;p)DHGroup.elt -> pms: (;p,g,gx,gy)dhpms -> bytes
+private val accessDHPMS: p:DHGroup.p -> g:(;p)DHGroup.g -> gx:(;p,g)DHGroup.elt -> gy:(;p,g)DHGroup.elt -> pms: (;p,g,gx,gy)dhpms -> bytes
 private val accessPMS: pms -> bytes
 
+// log storing idealized master secrets
 type entry = i:msId * (;i) ms
 private val log: entry list ref
 private val assoc: i:msId -> entry list -> (;i) PRF.ms option
+
+//internal functions performing concrete extraction
 private val extractMS: si:SessionInfo {not HonestMS(MsI(si))} -> p:bytes -> (;si) PRF.masterSecret
+private val extractMS_extended: si:SessionInfo {not HonestMS(MsI(si))} -> p:bytes -> (;si) PRF.masterSecret

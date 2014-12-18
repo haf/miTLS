@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -46,7 +46,72 @@ let equalCBytes (b1:byte[]) (b2:byte[]) =
     b1.Length = b2.Length &&
     Array.fold2 (fun ok x y -> x = y && ok) true (b1) (b2)
 
-(* Original implementation of bytes *)
+#if optimize_bytes
+
+[<CustomEquality;NoComparison>]
+type bytes =
+    {
+    bl: byte[] list;
+    max:int;
+    length: int;
+    index: int;
+    }
+    override x.Equals(y) = (match y with :? bytes as y -> (getBytes x.bl x.index x.length) = (getBytes y.bl y.index y.length) | _ -> false)
+    override x.GetHashCode() = hash (getBytes x.bl x.index x.length)
+
+let cbyte (b:bytes) =
+    if b.length = 1 then
+      let b1 = getByte b.bl b.index in b1
+    else failwith "cbyte: expected an array of length 1"
+
+let cbyte2 (b:bytes) =
+    if b.length = 2 then
+      let (b1,b2) = getByte2 b.bl b.index in b1,b2
+    else failwith "cbyte2: expected an array of length 2"
+
+let cbytes (b:bytes) =
+    if b.length = b.max && b.index = 0 then
+      let bl' = Array.concat b.bl in  bl'
+    else
+      let bl' = getBytes b.bl b.index b.length in bl'
+
+let abytes (ba:byte[]) =
+    {bl = [ba]; length = ba.Length; index = 0; max = ba.Length}
+let abytes_max (ba:byte[]) (max:int) =
+    let arr = Array.zeroCreate max in
+    (for i in 0 .. ba.Length do Array.set arr i ba.[0]);
+    {bl = [arr]; length = ba.Length; index = 0; max = ba.Length}
+
+let abyte (ba:byte) =
+    {bl = [[|ba|]]; length = 1; index = 0; max = 1}
+let abyte2 (ba1:byte,ba2:byte) =
+    {bl = [[|ba1;ba2|]]; length = 2; index = 0; max = 2}
+
+let (@|) (a:bytes) (b:bytes) =
+    if a.length + a.index = a.max && b.index = 0 then
+      {bl = (a.bl @ b.bl);
+       length = a.length + b.length;
+       index = a.index;
+       max = a.max + b.max}
+    else
+      {bl = [Array.append (cbytes a) (cbytes b)];
+       length = a.length + b.length;
+       index = 0;
+       max = a.length + b.length}
+
+let split (b:bytes) i : bytes * bytes =
+    {bl = b.bl;
+     length = i;
+     index = b.index;
+     max = b.max},
+    {bl = b.bl;
+     length = b.length - i;
+     index = b.index + i;
+     max = b.max}
+let length (d:bytes) = d.length
+
+#else
+
 [<CustomEquality;NoComparison>]
 type bytes =
      {b:byte[]}
@@ -66,6 +131,8 @@ let (@|) (a:bytes) (b:bytes) = abytes(Array.append (cbytes a) (cbytes b))
 let split (b:bytes) i : bytes * bytes =
   abytes (Array.sub (cbytes b) 0 i),
   abytes (Array.sub (cbytes b) i ((length b) - i))
+
+#endif
 
 let empty_bytes = abytes [||]
 let createBytes len (value:int) : bytes =
@@ -116,6 +183,11 @@ let split2 (b:bytes) i j : bytes * bytes * bytes =
 
 let utf8 (x:string) : bytes = abytes (System.Text.Encoding.UTF8.GetBytes x)
 let iutf8 (x:bytes) : string = System.Text.Encoding.UTF8.GetString (cbytes x)
+
+let hexString x =
+    (cbytes x)
+    |> Array.map (fun x -> System.String.Format("{0:X2}",x))
+    |> String.concat System.String.Empty
 
 let todo (s:string) : unit =
 #if ideal

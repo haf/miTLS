@@ -1,7 +1,7 @@
 # -*- Makefile -*-
 
 # --------------------------------------------------------------------
-version    ?= 0.1.3
+version    ?= 0.7.0
 name        = miTLS
 distname    = $(name)-$(version)
 f7distname  = $(name)-f7-$(version)
@@ -10,7 +10,7 @@ TAR = tar --format=posix --owner=0 --group=0
 
 include Makefile.config
 
-.PHONY: all build make.in prepare-dist
+.PHONY: all build build-debug make.in prepare-dist
 .PHONY: do-dist-check dist dist-check
 
 # --------------------------------------------------------------------
@@ -21,6 +21,9 @@ clean = $(msbuild) /v:minimal /p:Configuration=$(1) /t:Clean tls.sln
 
 build:
 	$(call build,Release)
+
+build-debug:
+	$(call build,Debug)
 
 clean:
 	$(call clean,Release)
@@ -43,7 +46,7 @@ dist: prepare-dist
 	  find $(distname) \
 	    -type f \( -name '*.fs' -o -name '*.fsi' -o -name '*.fs7' \) \
 	    -exec scripts/anonymize \
-	      -m release -B -P -I wsgi -I ideal -I verify \
+	      -m release -B -P -I wsgi -I ideal -I verify -I optimize_bytes \
 	      -c LICENSE.header '{}' \+; \
 	fi
 	$(TAR) -czf $(distname).tgz $(distname)

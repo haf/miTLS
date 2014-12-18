@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -48,6 +48,19 @@ let StatefulPlainToLHAEPlain (i:id) (h:StatefulPlain.history)
     (ad:StatefulPlain.adata) (ad':adata) (r:range) f = {contents = f}
 let LHAEPlainToStatefulPlain (i:id) (h:StatefulPlain.history)
     (ad:StatefulPlain.adata) (ad':adata) (r:range) f = f.contents
+
+let makeExtPad id ad rg p =
+    let ad = parseAD id ad in
+    let c = p.contents in
+    let c = StatefulPlain.makeExtPad id ad rg c in
+    {contents = c}
+
+let parseExtPad id ad rg p =
+    let ad = parseAD id ad in
+    let c = p.contents in
+    match StatefulPlain.parseExtPad id ad rg c with
+    | Error(x) -> Error(x)
+    | Correct(c) -> correct ({contents = c})
 
 #if ideal
 let widen i ad r f =

@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -20,12 +20,13 @@ open System.Threading
 
 (* ------------------------------------------------------------------------ *)
 type options = {
-    ciphersuite : TLSConstants.cipherSuiteName list;
-    tlsversion  : TLSConstants.ProtocolVersion;
-    servername  : string;
-    clientname  : string option;
-    localaddr   : IPEndPoint;
-    sessiondir  : string;
+    ciphersuite   : TLSConstants.cipherSuiteName list;
+    tlsminversion : TLSConstants.ProtocolVersion;
+    tlsmaxversion : TLSConstants.ProtocolVersion;
+    servername    : string;
+    clientname    : string option;
+    localaddr     : IPEndPoint;
+    sessiondir    : string;
 }
 
 (* ------------------------------------------------------------------------ *)
@@ -34,8 +35,8 @@ let noexn = fun cb ->
 
 (* ------------------------------------------------------------------------ *)
 let tlsoptions (options : options) = {
-    TLSInfo.minVer = options.tlsversion
-    TLSInfo.maxVer = options.tlsversion
+    TLSInfo.minVer = options.tlsminversion
+    TLSInfo.maxVer = options.tlsmaxversion
 
     TLSInfo.ciphersuites = TLSConstants.cipherSuites_of_nameList options.ciphersuite
 
@@ -47,6 +48,7 @@ let tlsoptions (options : options) = {
     TLSInfo.request_client_certificate = options.clientname.IsSome
 
     TLSInfo.safe_renegotiation = true
+    TLSInfo.safe_resumption = false
 
     TLSInfo.server_name = options.servername
     TLSInfo.client_name = match options.clientname with None -> "" | Some x -> x
@@ -66,6 +68,8 @@ let client_handler ctxt (peer : Socket) = fun () ->
             use netstream = new NetworkStream (peer, false)
             use tlsstream = new TLStream.TLStream
                               (netstream, ctxt, TLStream.TLSServer, false)
+
+            Console.Error.WriteLine((tlsstream.GetSessionInfoString()));
 
             let reader    = new StreamReader (tlsstream)
             let writer    = new StreamWriter (tlsstream)
@@ -120,6 +124,8 @@ let client (options : options) =
     socket.Connect(options.localaddr)
 
     use tlsstream = new TLStream.TLStream(socket.GetStream(), ctxt, TLStream.TLSClient)
+
+    Console.Error.WriteLine((tlsstream.GetSessionInfoString()));
 
     let reader = new StreamReader (tlsstream)
     let writer = new StreamWriter (tlsstream)

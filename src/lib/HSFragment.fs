@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -14,9 +14,11 @@ module HSFragment
 open Bytes
 open TLSInfo
 open Range
+open Error
+open TLSError
 
 type fragment = {frag: rbytes}
-type stream = {sb:bytes list}
+type stream = {sb:list<bytes>}
 type plain = fragment
 
 let fragmentPlain (ki:id) (r:range) b = {frag = b}
@@ -31,6 +33,12 @@ let extend (e:id) (s:stream) (r:range) (f:fragment) =
 #endif
 
 let reStream (e:id) (s:stream) (r:range) (p:plain) (s':stream) = p
+
+let makeExtPad (i:id) (r:range) (p:plain) =
+        p
+
+let parseExtPad (i:id) (r:range) (p:plain) : Result<plain> =
+        correct p
 
 #if ideal
 let widen (e:id) (r0:range) (r1:range) (f0:fragment) =

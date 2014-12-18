@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -35,25 +35,23 @@ type csrands = bytes
 type cVerifyData = bytes (* ClientFinished payload *)
 type sVerifyData = bytes (* ServerFinished payload *)
 
+type sessionHash = bytes
+
 // Defined here to not depend on TLSExtension
 type negotiatedExtension =
-    | NE_VoidExtension
+    | NE_extended_ms
+    | NE_extended_padding
 
-type negotiatedExtensions = negotiatedExtension list
+type negotiatedExtensions = list<negotiatedExtension>
 
 type pmsId
 val pmsId: PMS.pms -> pmsId
 val noPmsId: pmsId
 
-type pmsData =
-    | PMSUnset
-    | RSAPMS of RSAKey.pk * ProtocolVersion * bytes
-    | DHPMS  of DHGroup.p * DHGroup.g * DHGroup.elt * DHGroup.elt
-
 type msId =
   pmsId *
   csrands *
-  creAlg
+  kefAlg
 
 type SessionInfo = {
     init_crand: crand;
@@ -63,19 +61,18 @@ type SessionInfo = {
     compression: Compression;
     extensions: negotiatedExtensions;
     pmsId: pmsId;
-    pmsData: pmsData;
+    session_hash: sessionHash;
     client_auth: bool;
-    clientID: Cert.cert list;
-    serverID: Cert.cert list;
+    clientID: list<Cert.cert>;
+    clientSigAlg: Sig.alg;
+    serverID: list<Cert.cert>;
+    serverSigAlg: Sig.alg;
     sessionID: sessionID;
-    // Extensions:
-    extended_record_padding: bool;
     }
 
 val csrands: SessionInfo -> bytes
-val prfAlg: SessionInfo -> prfAlg
-val creAlg: SessionInfo -> creAlg
-val kdfAlg: SessionInfo -> kdfAlg
+val kefAlg: SessionInfo -> kefAlg
+val kefAlg_extended: SessionInfo -> kefAlg
 val vdAlg: SessionInfo -> vdAlg
 val msi: SessionInfo -> msId
 
@@ -86,6 +83,7 @@ type id = {
   pv: ProtocolVersion; //Should be part of aeAlg
   aeAlg  : aeAlg;  // the authenticated-encryption algorithms
   csrConn: csrands;
+  ext: negotiatedExtensions;
   writer : Role
   }
 
@@ -97,9 +95,9 @@ type preEpoch
 type epoch = preEpoch
 
 type event =
-  | KeyCommit of    csrands * ProtocolVersion * aeAlg
-  | KeyGenClient of csrands * ProtocolVersion * aeAlg
-  | SentCCS of Role * epoch
+  | KeyCommit of    csrands * ProtocolVersion * aeAlg * negotiatedExtensions
+  | KeyGenClient of csrands * ProtocolVersion * aeAlg * negotiatedExtensions
+  | SentCCS of Role * crand * srand * SessionInfo
 
 val id: epoch -> id
 val unAuthIdInv: id -> epoch
@@ -123,6 +121,8 @@ val initConnection: Role -> bytes -> ConnectionInfo
 val nextEpoch: epoch -> crand -> srand -> SessionInfo -> epoch
 //val dual_KeyInfo: epoch -> epoch
 
+val sinfo_to_string: SessionInfo -> string
+
 (* Application configuration options *)
 
 type helloReqPolicy =
@@ -134,13 +134,14 @@ type config = {
     minVer: ProtocolVersion
     maxVer: ProtocolVersion
     ciphersuites: cipherSuites
-    compressions: Compression list
+    compressions: list<Compression>
 
     (* Handshake specific options *)
 
     (* Client side *)
     honourHelloReq: helloReqPolicy
     allowAnonCipherSuite: bool
+    safe_resumption: bool
 
     (* Server side *)
     request_client_certificate: bool

@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -12,34 +12,45 @@
 
 module RSAKey
 
-(* This module is not typechecked *)
-
 // This module defines RSA keys
 // but not their use for public-key encryption: see RSA
 // (We use two modules to break a circular dependency)
 
 open Bytes
 
-type sk (* secret (decryption) key, abstract for honest keys *)
-type pk (* public (encryption) key, abstract but bytes are accessible *)
+private type sk = { sk : CoreACiphers.sk } (* secret (decryption) key, abstract for honest keys *)
+type pk = { pk : CoreACiphers.pk } (* public (encryption) key, bytes are accessible *)
 
 type modulus  = bytes
 type exponent = bytes
 
-(* Used only for specification *)
-
+// marks honestly generated keys (dynamically assumed by gen).
 predicate Honest of pk
 val honest: pk:pk -> b:bool {b=true <=> Honest(pk)}
 
+predicate Strong of TLSConstants.ProtocolVersion
+val strong: pv:TLSConstants.ProtocolVersion  -> b:bool {b=true <=> Strong(pv)}
+
+// marks relationship between secret and public keys
+// (dynamically assumed by gen & coerce to partially define the logical PK)
+predicate type pred = SK_PK of sk * pk
 function val PK: sk -> pk
-val gen: unit -> p:pk * s:sk {p = PK(s)}
+private definition !sk,pk. pk=PK(sk) <=> SK_PK(sk,pk)
 
-val pkey:      CoreACiphers.pk -> pk
-val pkey_repr: pk -> CoreACiphers.pk
+val gen: unit -> p:pk * s:sk{p = PK(s)}
+val coerce: p:pk {not Honest(p)} -> CoreACiphers.sk -> s:sk{p = PK(s)}
 
-val coerce: p:pk {not Honest(p)}     -> CoreACiphers.sk -> s:sk{p = PK(s)}
-val leak:   s:sk {not Honest(PK(s))} -> CoreACiphers.sk
+// in a model with adversarially provided keys and static corruption, leak is not essential
+//val leak:   s:sk {not Honest(PK(s))} -> CoreACiphers.sk
 
-// those are morally private, used only in RSA.fs
+// shouldn't be needed as representation of pk need not be private
 val repr_of_rsapkey : pk -> CoreACiphers.pk
+
+// morally private, used only in RSA.fs
 val repr_of_rsaskey : sk -> CoreACiphers.sk
+
+// shouldn't be needed as representation of pk need not be private
+val create_rsapkey : modulus * exponent -> pk
+
+// replaced by coerce
+// val create_rsaskey : modulus * exponent -> sk

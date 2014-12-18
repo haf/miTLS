@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -14,6 +14,8 @@ module HSFragment
 open Bytes
 open TLSInfo
 open Range
+open Error
+open TLSError
 
 type stream
 
@@ -27,6 +29,9 @@ val extend: id -> stream -> range -> fragment -> stream
 val init: id -> stream
 
 val reStream: id -> stream -> range -> plain -> stream -> plain
+
+val makeExtPad:  id -> range -> fragment -> fragment
+val parseExtPad: id -> range -> fragment -> Result<fragment>
 
 #if ideal
 val widen: id -> range -> range -> fragment -> fragment

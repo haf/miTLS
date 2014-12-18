@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -25,8 +25,7 @@
     <WarningLevel>3</WarningLevel>
     <PlatformTarget>AnyCPU</PlatformTarget>
     <DocumentationFile>bin\Debug\ConsoleApplication1.XML</DocumentationFile>
-    <StartArguments>
-    </StartArguments>
+    <StartArguments>--sessionDB-dir sessionDB --local-name rsa.cert --bind-port 6000</StartArguments>
     <StartWorkingDirectory>
     </StartWorkingDirectory>
     <StartAction>Project</StartAction>
@@ -61,7 +60,7 @@
     <Compile Include="HttpHeaders.fs" />
     <Compile Include="HttpData.fs" />
     <Compile Include="HttpStreamReader.fs" />
-    <Compile Include="HttpWSGI.fs" Condition="'$(USEWSGI)' != ''"/>
+    <Compile Include="HttpWSGI.fs" Condition="'$(USEWSGI)' != ''" />
     <Compile Include="HttpServer.fs" />
     <Compile Include="Program.fs" />
     <None Include="wsgibridge.py">

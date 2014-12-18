@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -12,22 +12,27 @@
 
 module DHGroup
 
-(* Trusted: not typechecked *)
-
 open Bytes
 
-type p = bytes // DH group order, actually a bignum
+type p = bytes // DH modulus, actually a bignum
+type q = bytes // subgroup order
 
-// for public parameters and exchange values;
-// we use an abstract predicate to ensure that elements
+// For public parameters and exchange values.
+// We use an abstract predicate to ensure that elements
 // are bytes that have been correctly generated or checked,
-// e.g. Num(elt) in 2..p-1
+// e.g. Elt(p,g,b) => Num(b) in [2..p-1] /\ order(b) = order(g)
 
-predicate type preds = Elt of bytes * bytes
-type (;p:p) elt = b:bytes{ Elt(p,b) }
+predicate type preds = Elt of bytes * bytes * bytes
 
-type (;p:p) g = (;p) elt  // for the group generator
+type (;p:p) g = g:bytes{ Elt(p,g,g) } // for the group generator
 
-val dhparams: p:p -> (;p)g -> CoreKeys.dhparams
-val genElement: p:p -> g:(;p)g -> (;p)elt
-val checkElement: p:p -> b:bytes -> (b':(;p)elt{b=b'}) option
+type (;p:p, g:(;p) g) elt = b:bytes{ Elt(p,g,b) }
+
+// Marks "Strong" parameter generation used by compliant servers,
+// formally a precondition for signing them with an honest key.
+predicate type predPP = PP of p:p * g:(;p) g
+
+val dhparams: p:p -> (;p) g -> q option -> CoreKeys.dhparams
+val genElement: p:p -> g:(;p) g -> q option -> (;p,g) elt
+
+val checkElement: p:p -> g:bytes -> b:bytes -> (b':(;p,g) elt {b = b'}) option

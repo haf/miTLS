@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -17,14 +17,16 @@ module StatefulPlain
 open Bytes
 open TLSConstants
 open TLSInfo
+open Error
+open TLSError
 open Range
 
 (* The authenticated record header includes the content type + the protocol version if > SSL3. *)
 
 function val ADLength: id -> nat
 private definition !i.
-    (i.pv = SSL_3p0  /\ ADLength(i) = 1) \/
-	(i.pv  <> SSL_3p0 /\ ADLength(i) = 3)
+    (i.pv = SSL_3p0  => ADLength(i) = 1) /\
+    (i.pv <> SSL_3p0 => ADLength(i) = 3)
 ask !i. 0 <= ADLength(i) // needed for parsing and not entailed by ADLength's type
 
 type (;i:id) adata = (b:bytes){Length(b) = ADLength(i)}
@@ -35,12 +37,12 @@ private definition !i,ct.
 	(PvOfId(i) <> SSL_3p0  => ADBytes(i,ct) = (CTBytes(ct) @| VersionBytes(i.pv )))
 
 function val ParseAD: i:id * cbytes -> ContentType
-private definition !i,ct. ParseAD(i,ADBytes(i,ct)) = ct
+private theorem !i,ct,b. ParseAD(i,ADBytes(i,ct)) = ct
 
 //private definition !i,b.
 //	(PvOfId(i)  = SSL_3p0  =>  ParseAD(i,b) = ParseCT(b)) /\
 //	(PvOfId(i) <> SSL_3p0 /\ b= prefix @| VersionBytes(i.pv) => ParseAD(i,b) = ParseCT(prefix) )
-	//ADBytes(i,ct) = (CTBytes(ct) @| VersionBytes(i.pv )))
+//ADBytes(i,ct) = (CTBytes(ct) @| VersionBytes(i.pv )))
 
 val makeAD:  i:id -> ct:ContentType -> ad:(;i)adata{B(ad)=ADBytes(i,ct)}
 private val parseAD: i:id -> ad:(;i)adata -> ct:ContentType{B(ad)=ADBytes(i,ct)}
@@ -74,7 +76,24 @@ function val ExtendHistory: i:id * ad:(;i)adata * h:(;i) history * r:range * (;i
 private definition !i. EmptyHistory(i) = (0,[])
 private definition !i,n,h,d,r,f. ExtendHistory(i,d,(n,h),r,f) = (n+1,(d,r,f)::h)
 
+function val StAEToRecord: i:id * ct:ContentType * r:range * f:(;i,ADBytes(i,ct),r)fragment -> 'a //(;i,ct,r)TLSFragment.fragment
+private definition !i,ct,r,f. StAEToRecord(i,ct,r,f) = f.contents
+
+function val Multiplexed: e:epoch * (;Id(e)) history -> 'b //(;e)TLSFragment.history
+definition !e.
+    Multiplexed(e,EmptyHistory(Id(e))) = TLSFragment.EmptyHistory(e)
+definition !e,ad,sh,r,f,ct.
+    Multiplexed(e,ExtendHistory(Id(e),ad,sh,r,f)) =
+    TLSFragment.ExtendHistory(e,ParseAD(Id(e),B(ad)),
+                   Multiplexed(e,sh),
+                   r,StAEToRecord(Id(e),ParseAD(Id(e),B(ad)),r,f))
+
 predicate Sent of i:id * ad:cbytes *  h:(;i)history * r:range * (;i,ad,r)fragment
+
+private definition !i,ad,sh,r,f.
+    Sent(i,ad,sh,r,f) <=>
+	 (?e. i = Id(e) /\
+              TLSFragment.RecordSent(e,ParseAD(i,ad),Multiplexed(e,sh),r,f.contents))
 
 private definition !i. StAEHistory(i,[])
 private definition !i,ad,sn,h,r,f.
@@ -99,6 +118,9 @@ val repr:
 val reprFragment:
   i:id{not SafeId(i)} -> ad:(;i)adata -> r:range ->
   f:(;i,B(ad),r) fragment -> b:(;r)rbytes {B(b) = Payload(i,B(ad),r,f)}
+
+val makeExtPad:  i:id -> ad:(;i)adata -> r:range -> f:(;i,B(ad),r)fragment -> f':(;i,B(ad),r)fragment{f=f'}
+val parseExtPad: i:id -> ad:(;i)adata -> r:range -> f:(;i,B(ad),r)fragment -> res:((f':(;i,B(ad),r)fragment{f=f'}) Result){?f. res = Correct(f)}
 
 val widen:
   i:id -> ad:(;i)adata -> r:range ->
@@ -127,23 +149,8 @@ private val consHistory:
 
 assume !i,ad,h,h',r,f. (AuthId(i) /\ StAEHistory(i,h) /\ StAEHistory(i,h') /\ HLength(i,h) = HLength(i,h')) => h = h'
 
-function val StAEToRecord: i:id * ct:ContentType * r:range * f:(;i,ADBytes(i,ct),r)fragment -> 'a //(;i,ct,r)TLSFragment.fragment
-private definition !i,ct,r,f. StAEToRecord(i,ct,r,f) = f.contents
-
-function val Multiplexed: e:epoch * (;Id(e)) history -> 'b //(;e)TLSFragment.history
-definition !e.
-    Multiplexed(e,EmptyHistory(Id(e))) = TLSFragment.EmptyHistory(e)
-definition !e,ad,sh,r,f,ct.
-    Multiplexed(e,ExtendHistory(Id(e),ad,sh,r,f)) =
-    TLSFragment.ExtendHistory(e,ParseAD(Id(e),B(ad)),
-                   Multiplexed(e,sh),
-                   r,StAEToRecord(Id(e),ParseAD(Id(e),B(ad)),r,f))
-
-private definition !i,ad,sh,r,f.
-    Sent(i,ad,sh,r,f) <=>
-	 (?e. i = Id(e) /\
-              TLSFragment.RecordSent(e,ParseAD(i,ad),Multiplexed(e,sh),r,f.contents))
-
+(*
+// CF 14-07-15 ??
 private assume !e,e',ad,sh,r,d.
        (Id(e) = Id(e') /\
        (AuthId(Id(e)) => TLSFragment.RecordSent(e',ad,Multiplexed(e',sh),r,d))) =>
@@ -157,6 +164,8 @@ private ask !e,ad,sh,r,f.
   (AuthId(Id(e)) => Sent(Id(e),ad,sh,r,f)) =>
   (AuthId(Id(e)) => TLSFragment.RecordSent(e,ParseAD(Id(e),ad),Multiplexed(e,sh),r,f.contents))
 
+*)
+
 val RecordPlainToStAEPlain:
     e:epoch -> ct:ContentType ->
     ad:(;Id(e))adata{B(ad) = ADBytes(Id(e),ct)}  ->
@@ -167,7 +176,8 @@ val RecordPlainToStAEPlain:
     sf:(;Id(e),ad,sh,rg) plain{f = StAEToRecord(Id(e),ct,rg,sf)}
 
 val StAEPlainToRecordPlain:
-    e:epoch -> ct:ContentType -> ad:(;Id(e))adata{B(ad) = ADBytes(Id(e),ct)} ->
+    e:epoch -> ct:ContentType{ct = Application_data => OpenState(e)} ->
+    ad:(;Id(e))adata{B(ad) = ADBytes(Id(e),ct)} ->
     h:(;e) TLSFragment.history ->
     sh:(;Id(e)) history{h = Multiplexed(e,sh)} -> rg:range ->
     d:(;Id(e),ad,sh,rg) plain ->

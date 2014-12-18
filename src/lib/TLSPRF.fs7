@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -13,15 +13,15 @@
 module TLSPRF
 
 (* Concrete (bytes -> bytes) PRF algorithms for TLS; trusted. *)
-(* Used by CRE for extracting MS, by PRF for verifyData and key derivation *)
+(* Used by KEF for extracting MS, by PRF for verifyData and key derivation *)
 
 open Bytes
 open TLSConstants
 open TLSInfo
 
-val verifyData: prfAlg -> bytes -> Role -> bytes -> bytes
-val extract:   creAlg -> bytes -> bytes -> l:nat -> (;l)lbytes
-val kdf:        prfAlg -> bytes -> bytes -> l:nat -> (;l)lbytes
+val verifyData: vdAlg -> bytes -> Role -> bytes -> bytes
+val extract:   kefAlg -> bytes -> bytes -> l:nat -> (;l)lbytes
+val kdf:       kdfAlg -> bytes -> bytes -> l:nat -> (;l)lbytes
 
 (* SSL-specific certificate verify *)
 

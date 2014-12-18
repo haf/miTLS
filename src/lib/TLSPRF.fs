@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -134,12 +134,13 @@ let prf (pv,cs) secret (label:bytes) data len =
 
 let prf' a secret data len =
     match a with
-    | CRE_TLS_1p2(label,macAlg) -> tls12prf' macAlg secret label data len  // typically SHA256 but may depend on CS
-    | CRE_TLS_1p01(label)       -> tls_prf          secret label data len  // MD5 xor SHA1
-    | CRE_SSL3_nested           -> ssl_prf          secret       data len  // MD5(SHA1(...)) for extraction and keygen
+    | PRF_TLS_1p2(label,macAlg) -> tls12prf' macAlg secret label data len  // typically SHA256 but may depend on CS
+    | PRF_TLS_1p01(label)       -> tls_prf          secret label data len  // MD5 xor SHA1
+    | PRF_SSL3_nested           -> ssl_prf          secret       data len  // MD5(SHA1(...)) for extraction and keygen
+    | _ -> Error.unexpected "[prf'] unreachable pattern match"
 
 //let extract a secret data len = prf a secret extract_label data len
 
 let extract a secret data len = prf' a secret data len
 
-let kdf     a secret data len = prf a secret kdf_label     data len
+let kdf     a secret data len = prf' a secret data len

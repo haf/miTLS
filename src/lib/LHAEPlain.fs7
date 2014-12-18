@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -12,6 +12,8 @@
 
 module LHAEPlain
 open Bytes
+open Error
+open TLSError
 open TLSConstants
 open TLSInfo
 open Range
@@ -22,6 +24,7 @@ open Range
 
 // We define payloads and additional data from those of StatefulPlain,
 // adding an 8-byte sequence number to its additional data.
+
 type (;i:id) adata = (b:bytes){Length(b) = 8 + StatefulPlain.ADLength(i)}
 
 function val MakeAD:  i:id * (;i)StatefulPlain.history * cbytes -> cbytes
@@ -48,7 +51,8 @@ type (;i:id,ad:(;i)adata,r:range) plain = f:(;i,B(ad),r)fragment{ AuthId(i) => L
 
 val plain: i:id{not AuthId(i)} -> ad:(;i)adata -> r:range -> b:(;r)rbytes -> p:(;i,ad,r) plain {B(b) = Payload(i,B(ad),r,p)}
 val repr:  i:id{not SafeId(i)} -> ad:(;i)adata -> r:range -> p:(;i,ad,r) plain -> b:(;r)rbytes {B(b) = Payload(i,B(ad),r,p)}
-private val reprFragment:  i:id{not SafeId(i)} -> ad:(;i)adata -> r:range -> f:(;i,B(ad),r) fragment -> b:(;r)rbytes {B(b) = Payload(i,B(ad),r,f)}
+private val reprFragment:
+           i:id{not SafeId(i)} -> ad:(;i)adata -> r:range -> f:(;i,B(ad),r) fragment -> b:(;r)rbytes {B(b) = Payload(i,B(ad),r,f)}
 
 val widen: i:id -> ad:(;i)adata -> r:range ->
   f:(;i,ad,r)plain ->
@@ -60,6 +64,9 @@ private definition !i,lad,r,f.
   (?had,sn,ph. had = ParseAD(i,lad) /\
                sn = SeqN(i,lad) /\
                StatefulPlain.Sent(i,had,(sn,ph),r,f.contents))
+
+val makeExtPad:  id:id -> ad:(;id)adata -> r:range -> p:(;id,ad,r)plain -> p':(;id,ad,r)plain{p=p'}
+val parseExtPad: id:id -> ad:(;id)adata -> r:range -> p:(;id,ad,r)plain -> res:((p':(;id,ad,r)plain{p=p'}) Result){?p. res = Correct(p)}
 
 (* These coercions are used only in StatefulLHAE.fs;
    they are not part of the "plain" interface to LHAE. *)

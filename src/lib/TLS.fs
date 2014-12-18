@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -24,19 +24,19 @@ type nextCn = Connection
 
 // Outcomes for top-level functions
 type ioresult_i =
-    | ReadError of alertDescription option * string
+    | ReadError of option<alertDescription> * string
     | Close     of Tcp.NetworkStream
     | Fatal     of alertDescription
     | Warning   of nextCn * alertDescription
     | CertQuery of nextCn * query * bool
-    | Handshaken of Connection
+    | CompletedFirst  of Connection
+    | CompletedSecond of Connection
     | Read      of nextCn * msg_i
     | DontWrite of Connection
 
 type ioresult_o =
-    | WriteError    of alertDescription option * string
+    | WriteError    of option<alertDescription> * string
     | WriteComplete of nextCn
-    | WritePartial  of nextCn * msg_o
     | MustRead      of Connection
 
 let connect ns po = Dispatch.init ns Client po
@@ -45,8 +45,8 @@ let resume ns sid po = Dispatch.resume ns sid po
 let rehandshake c po = Dispatch.rehandshake c po
 let rekey c po = Dispatch.rekey c po
 
-let accept list po =
-    let ns = Tcp.accept list in
+let accept lt po =
+    let ns = Tcp.accept lt in
     Dispatch.init ns Server po
 let accept_connected ns po = Dispatch.init ns Server po
 
@@ -60,25 +60,22 @@ let read ca =
       | WriteOutcome(WError(err)) -> ReadError(None,err)
       | RAppDataDone(b) -> Read(cb,b)
       | RQuery(q,adv) -> CertQuery(cb,q,adv)
-      | RHSDone -> Handshaken(cb)
+      | RHSDone -> CompletedFirst(cb)
       | RClose -> Close (networkStream cb)
       | RFatal(ad) -> Fatal(ad)
       | RWarning(ad) -> Warning(cb,ad)
       | WriteOutcome(WriteFinished) -> DontWrite(cb)
-      | WriteOutcome(WHSDone) -> Handshaken (cb)
+      | WriteOutcome(WHSDone) -> CompletedSecond(cb)
       | WriteOutcome(SentFatal(ad,s)) -> ReadError(Some(ad),s)
       | WriteOutcome(SentClose) -> Close (networkStream cb)
       | WriteOutcome(WriteAgain) -> unexpected "[read] Dispatch.read should never return WriteAgain"
       | _ -> ReadError(None, perror __SOURCE_FILE__ __LINE__ "Invalid dispatcher state. This is probably a bug, please report it")
 
 let write c msg =
-    let c,outcome,rdOpt = Dispatch.write c msg in
+    let c,outcome = Dispatch.write c msg in
     match outcome with
       | WError(err) -> WriteError(None,err)
-      | WAppDataDone ->
-            match rdOpt with
-              | None -> WriteComplete c
-              | Some(rd) -> WritePartial (c,rd)
+      | WAppDataDone -> WriteComplete c
       | WDone ->
           (* We are in the open state, and providing some data to be sent, so only WAppDataDone can apply here *)
           WriteError(None, perror __SOURCE_FILE__ __LINE__ "Invalid dispatcher state. This is probably a bug, please report it")
@@ -109,12 +106,12 @@ let authorize c q =
     match outcome with
       | WriteOutcome(WError(err)) -> ReadError(None,err)
       | RError(err) -> ReadError(None,err)
-      | RHSDone -> Handshaken(cb)
+      | RHSDone -> CompletedFirst(cb)
       | RClose -> Close (networkStream cb)
       | RFatal(ad) -> Fatal(ad)
       | RWarning(ad) -> Warning(cb,ad)
       | WriteOutcome(WriteFinished) -> DontWrite(cb)
-      | WriteOutcome(WHSDone) -> Handshaken (cb)
+      | WriteOutcome(WHSDone) -> CompletedSecond(cb)
       | WriteOutcome(SentFatal(ad,s)) -> ReadError(Some(ad),s)
       | WriteOutcome(SentClose) -> Close (networkStream cb)
       | WriteOutcome(WriteAgain) -> unexpected "[read] Dispatch.read should never return WriteAgain"

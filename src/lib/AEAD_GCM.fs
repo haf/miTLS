@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -47,13 +47,14 @@ let LEAK (id:id) (rw:rw) s =
     let ivb = iv.ivb in
     (kb @| ivb)
 
-let ENC (id:id) state (adata:LHAEPlain.adata) (rg:range) p =
+let ENC_int (id:id) state (adata:LHAEPlain.adata) (rg:range) text =
     let k = state.key in
     let ivb = state.iv.ivb in
     let cb = TLSConstants.bytes_of_seq state.counter in
     let iv = ivb @| cb in
+    //let p = LHAEPlain.makeExtPad id adata rg p in
 
-    let text = LHAEPlain.repr id adata rg p in
+    //let text = LHAEPlain.repr id adata rg p in
     let tLen = length text in
     let tLenB = bytes_of_int 2 tLen in
     let ad = adata @| tLenB in
@@ -64,7 +65,31 @@ let ENC (id:id) state (adata:LHAEPlain.adata) (rg:range) p =
     let state = {state with counter = newCounter}
     (state,cipher)
 
-let DEC (id:id) state (adata:LHAEPlain.adata) (rg:range) cipher =
+#if ideal
+type entry = id * LHAEPlain.adata * cipher * range * LHAEPlain.plain
+let log: ref<list<entry>> = ref []
+let rec cfind (e:id) (c:cipher) (xs: list<entry>) =
+  match xs with
+      [] -> failwith "not found"
+    | (e',ad,c',rg,text)::res when e = e' && c = c' -> (ad,rg,text)
+    | _::res -> cfind e c res
+#endif
+
+let ENC (id:id) state adata rg p =
+  #if ideal
+    if safeId (id) then
+      let tlen = targetLength id rg
+      let text = createBytes tlen 0 in
+      let (s,c) = ENC_int id state adata rg text in
+      log := (id, adata, c, rg, p)::!log;
+      (s,c)
+    else
+  #endif
+      let p = LHAEPlain.makeExtPad id adata rg p in
+      let text = LHAEPlain.repr id adata rg p in
+      ENC_int id state adata rg text
+
+let DEC_int (id:id) state (adata:LHAEPlain.adata) (rg:range) cipher =
     match id.aeAlg with
     | AEAD(aealg,_) ->
         let recordIVLen = aeadRecordIVSize aealg in
@@ -78,8 +103,25 @@ let DEC (id:id) state (adata:LHAEPlain.adata) (rg:range) cipher =
         let k = state.key in
         match CoreCiphers.aes_gcm_decrypt k.kb iv ad cipher with
         | None ->
-           let reason = perror __SOURCE_FILE__ __LINE__ "" in Error(AD_bad_record_mac, reason)
+           let reason = "" in
+           Error(AD_bad_record_mac, reason)
         | Some(plain) ->
-           let plain = LHAEPlain.plain id adata rg plain in
-           correct (state,plain)
+            let plain = LHAEPlain.plain id adata rg plain in
+            match LHAEPlain.parseExtPad id adata rg plain with
+            | Error(x) ->
+                let reason = "" in
+                Error(AD_bad_record_mac, reason)
+            | Correct(plain) -> correct (state,plain)
     | _ -> unexpected "[DEC] invoked on wrong algorithm"
+
+let DEC (id:id) state (adata:LHAEPlain.adata) (rg:range) cipher  =
+  #if ideal
+    if safeId (id) then
+      match DEC_int id state adata rg cipher with
+      | Correct (s,p) ->
+        let (ad',rg',p') = cfind id cipher !log in
+        correct (s,p')
+      | Error(x) -> Error(x)
+    else
+  #endif
+      DEC_int id state adata rg cipher

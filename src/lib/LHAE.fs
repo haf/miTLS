@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -86,7 +86,8 @@ let encrypt' (e:id) key data rg plain =
         | Stream_RC4_128 -> // stream cipher
             let plain   = Encode.mac e ka data rg plain in
             let (l,h) = rg in
-            if l <> h then
+            if
+                l <> h then
                 unexpected "[encrypt'] given an invalid input range"
             else
                 let (ke,res) = ENC.ENC e ke data rg plain
@@ -105,7 +106,8 @@ let encrypt' (e:id) key data rg plain =
             (key,r)
     | (AEAD(encAlg,_), GCM(gcmState)) ->
         let (l,h) = rg in
-        if l <> h then
+        if
+            l <> h then
             unexpected "[encrypt'] given an invalid input range"
         else
             let (newState,res) = AEAD_GCM.ENC e gcmState data rg plain in
@@ -138,7 +140,8 @@ let decrypt' e key data cipher =
         | CBC_Stale(alg) | CBC_Fresh(alg) -> // block cipher
             let ivL = ivSize e in
             let blockSize = blockSize alg in
-            if (cl - ivL < macSize + 1) || (cl % blockSize <> 0) then
+            let fp = fixedPadSize e in
+            if (cl - ivL < macSize + fp) || (cl % blockSize <> 0) then
                 (*@ It is safe to return early, because we are branching
                     on public data known to the attacker *)
                 let reason = perror __SOURCE_FILE__ __LINE__ "" in Error(AD_bad_record_mac, reason)
@@ -155,7 +158,7 @@ let decrypt' e key data cipher =
             let reason = perror __SOURCE_FILE__ __LINE__ "" in Error(AD_bad_record_mac, reason)
         else
             let rg = cipherRangeClass e cl in
-            todo "freshly broken?";
+
             let plain = Encode.plain e data cl cipher in
             match Encode.verify e ka data rg plain with
             | Error(z) -> Error(z)
@@ -179,9 +182,9 @@ let decrypt' e key data cipher =
 type preds = | ENCrypted of id * LHAEPlain.adata * range * LHAEPlain.plain * cipher
 
 type entry = id * LHAEPlain.adata * range * LHAEPlain.plain * ENC.cipher
-let log = ref ([]: entry list) // for defining the ideal functionality for CTXT
+let log = ref ([]: list<entry>) // for defining the ideal functionality for INT-CTXT
 
-let rec cmem (e:id) (ad:LHAEPlain.adata) (c:ENC.cipher) (xs: entry list) =
+let rec cmem (e:id) (ad:LHAEPlain.adata) (c:ENC.cipher) (xs: list<entry>) =
 #if verify
   failwith "specification only"
 #else
@@ -190,7 +193,6 @@ let rec cmem (e:id) (ad:LHAEPlain.adata) (c:ENC.cipher) (xs: entry list) =
   | _::xs                  -> cmem e ad c xs
   | []                     -> None
 #endif
-
 #endif
 
 let encrypt (e:id) key data rg plain =

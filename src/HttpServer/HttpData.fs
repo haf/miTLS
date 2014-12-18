@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -39,6 +39,7 @@ type HttpServerConfig = {
     mimesmap   : Mime.MimeMap;
     localaddr  : IPEndPoint;
     tlsoptions : TLSInfo.config option;
+    servname   : string;
 }
 
 type HttpBody =

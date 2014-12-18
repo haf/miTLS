@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -68,11 +68,10 @@ type readOutcome =
     | RFatal of alertDescription (* The received alert *)
     | RWarning of alertDescription (* The received alert *)
 
-val write: Connection -> msg_o -> Connection * writeOutcome * msg_o option
-val read:  Connection -> Connection * readOutcome
-
-val authorize: Connection -> query -> Connection * readOutcome
-val refuse:    Connection -> query -> unit
+val write:        Connection -> msg_o -> Connection * writeOutcome
+val read:         Connection -> Connection * readOutcome
+val authorize:    Connection -> query -> Connection * readOutcome
+val refuse:       Connection -> query -> unit
 
 val getEpochIn:   Connection -> epoch
 val getEpochOut:  Connection -> epoch

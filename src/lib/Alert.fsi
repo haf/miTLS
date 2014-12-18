@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -42,7 +42,7 @@ val send_alert: ConnectionInfo -> state -> alertDescription -> state
 
 val next_fragment: ConnectionInfo -> state -> (ALFragReply * state)
 
-val recv_fragment: ConnectionInfo -> state -> range -> HSFragment.fragment -> alert_reply Result
+val recv_fragment: ConnectionInfo -> state -> range -> HSFragment.fragment -> Result<alert_reply>
 
 val is_incoming_empty: ConnectionInfo -> state -> bool
 val reset_incoming: ConnectionInfo -> state -> ConnectionInfo -> state

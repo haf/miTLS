@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -20,14 +20,14 @@ type SessionIndex = sessionID * Role * Cert.hint
 
 #if ideal
 type entry = sessionID * Role * Cert.hint * StorableSession
-type t = entry list
+type t = list<entry>
 #else
 type t
 #endif
 
 val create: config -> t
-val select: t -> sessionID -> Role -> Cert.hint -> StorableSession option
+val select: t -> sessionID -> Role -> Cert.hint -> option<StorableSession>
 val insert: t -> sessionID -> Role -> Cert.hint -> StorableSession -> t
 val remove: t -> sessionID -> Role -> Cert.hint -> t
 
-val getAllStoredIDs: t -> SessionIndex list
+val getAllStoredIDs: t -> list<SessionIndex>

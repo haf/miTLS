@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -10,6 +10,14 @@
  *   http://www.cecill.info/licences/Licence_CeCILL-B_V1-en.txt
  *)
 
-module RPCServer
+module KEF
 
-let entry () = RPC.doserver ()
+open Bytes
+open TLSConstants
+open TLSInfo
+open Error
+open TLSError
+open PMS
+
+val extract: SessionInfo -> pms -> PRF.masterSecret
+val extract_extended: SessionInfo -> pms -> PRF.masterSecret

@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -32,6 +32,7 @@ val append: epoch -> stream -> range -> delta -> stream
 val split: epoch -> stream -> range -> range -> delta -> delta * delta
 val deltaPlain: epoch -> stream -> range -> rbytes -> delta
 val deltaRepr: epoch -> stream -> range -> delta -> rbytes
+
 #if ideal
 val widen: epoch -> stream -> range -> range -> delta -> delta
 #endif

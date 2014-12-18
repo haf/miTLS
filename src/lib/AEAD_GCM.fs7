@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -11,6 +11,10 @@
  *)
 
 module AEAD_GCM
+
+(* Implements AES-GCM as a concrete instance of "advanced" LHAE;
+   we could similarly specify AES-CCM.
+   used by LHAE, parameterized by LHAEPlain. *)
 
 open Bytes
 open Range
@@ -40,13 +44,27 @@ val LEAK:   i:id{not AuthId(i)} -> rw:rw -> (;i,rw)state -> bytes
 
 predicate val ENCrypted: i:id * ad:(;i)LHAEPlain.adata * cipher * 'a -> bool
 
+type entry =
+  (i:id * ad:(;i)LHAEPlain.adata * c:cipher * r:range * p:(;i,ad,r)LHAEPlain.plain)
+  { ENCrypted(i,ad,c,p) }
+
+private val log: entry list ref
+private val cfind: i:id -> c:cipher -> xs: entry list ->
+  (a:(;i)LHAEPlain.adata * r:range * (;i,a,r) LHAEPlain.plain)
+
+private val ENC_int: i:id -> e:(;i)encryptor -> ad:(;i)LHAEPlain.adata -> r:range -> bytes ->
+  ( (e':(;i)encryptor{e'=NextEncryptor(i,e)}) *
+    (c:cipher )) //{ Length(c) = TargetLength(i,r)}) )
+
 val ENC: i:id -> e:(;i)encryptor -> ad:(;i)LHAEPlain.adata -> r:range -> p:(;i,ad,r)LHAEPlain.plain ->
-	( (e':(;i)encryptor{e'=NextEncryptor(i,e)}) *
-	  (c:cipher{(SafeId(i) => ENCrypted(i,ad,c,p)) /\
-			   Length(c) = TargetLength(i,r)}) )
+  ( (e':(;i)encryptor{e'=NextEncryptor(i,e)}) *
+    (c:cipher{(SafeId(i) => ENCrypted(i,ad,c,p)) /\ Length(c) = TargetLength(i,r)}) )
+
+private val DEC_int: i:id -> (;i)decryptor -> ad:(;i)LHAEPlain.adata -> r:range -> c:cipher ->
+  res: (((;i)decryptor * p:(;i,ad,r)LHAEPlain.plain) Result)
 
 val DEC: i:id -> (;i)decryptor -> ad:(;i)LHAEPlain.adata -> r:range -> c:cipher ->
-	res: (((;i)decryptor * p:(;i,ad,r)LHAEPlain.plain) Result)
+  res: (((;i)decryptor * p:(;i,ad,r)LHAEPlain.plain) Result)
 	{SafeId(i) =>
 		( (!d,p. res = Correct((d,p)) => ENCrypted(i,ad,c,p)) /\
 		  (?p. ENCrypted(i,ad,c,p) => ?d. res = Correct((d,p)))

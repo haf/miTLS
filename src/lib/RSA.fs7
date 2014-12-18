@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -30,18 +30,22 @@ open RSAKey
 
 val encrypt:
   pk:pk -> cv:ProtocolVersion -> pms:(;pk,cv) PMS.rsapms ->
-  b:bytes {PMS.EncryptedRSAPMS(pk,cv,pms,b)}
+  b:bytes
 
+// This is not just plain RSA_PKCS1 decryption.
+// We put in place protocol regression, Bleichenbacher and related timing attack countermeasures.
+// See RFC 5246, section 7.4.7.1
 val decrypt:
-  sk -> si:SessionInfo ->
+  sk -> si:SessionInfo{si.serverID <> []} ->
   cv:ProtocolVersion -> (* highest client version *)
   bool -> (* flag whether we should check protocol version in old TLS versions *)
   bytes -> (* encrypted PMS *)
-  (;Cert.RSAPKCert(si.serverID),cv) PMS.rsapms (* no Result type: instead of an error, we return a fresh Nonce.random PMS *)
+  (;Cert.RSAPKCert(si.serverID),cv) PMS.rsapms
 
-// This is not just plain RSA_PKCS1 decryption.
-// We put in place timing attack countermeasures.
-// See RFC 5246, section 7.4.7.1
+  (* no Result type: instead of an error, we return a fresh Nonce.random PMS
+     here we deliberately differ from the presentation in http://eprint.iacr.org/2014/182
+	 where the countermeasures are applied at the ms-KEM level
+   *)
 
 // The rest of the interface is internal to RSA.fs
 
@@ -60,4 +64,5 @@ private val real_decrypt:
   cv:ProtocolVersion -> (* highest client version *)
   cv_check:bool -> (* flag whether we should check protocol version in old TLS versions *)
   ct:bytes -> (* encrypted PMS *)
-  pmsb:PMS.rsarepr { cv_check=true => ?b. B(pmsb) = VersionBytes(cv) @| b} (* No Result type: in case of error, we return a fresh Nonce.random PMS *)
+  pmsb:PMS.rsarepr { cv_check=true => ?b. B(pmsb) = VersionBytes(cv) @| b}
+  (* No Result type: in case of error, we return a fresh Nonce.random PMS *)

@@ -191,7 +191,7 @@ def _main():
 
     for x in manifest:
         if os.path.isdir(x.path):
-            bygroup.setdefault(x.path, [])
+            bygroup.setdefault(x.path, dict())
         else:
             (xdir, xbase) = os.path.split(x.path)
             xexec = os.access(x.path, os.X_OK)

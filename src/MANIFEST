@@ -13,6 +13,8 @@ licenses/*.txt
 
 tls.sln
 
+easycrypt/*.ec
+
 find:3rdparty:*.dll
 find:DB/lib:*.dll
 

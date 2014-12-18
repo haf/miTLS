@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -13,7 +13,7 @@
 module ENC
 
 (* Bulk encryption for TLS record, agile & assumed conditionally CPA with "Encode" for plaintexts *)
-(* This module is trusted *)
+(* This module is idealized *)
 
 open Bytes
 open Encode
@@ -33,12 +33,17 @@ private type (;ki:id) iv3 =
 	| SomeIV of iv // SSL_3p0 and TLS_1p0
 	| NoIV         // TLS_1p0 and TLS_1p2
 
+private val someIV: ki:id -> iv:iv -> (;ki)iv3
+private val noIV: ki:id -> (;ki)iv3
+
 private type (;ki:id) blockState =
     {key: (;ki)key;
      iv: (;ki)iv3}
 private type (;ki:id) streamState =
     {skey: (;ki)key; // Ghost: Only stored so that we can LEAK it
      sstate: CoreCiphers.rc4engine}
+
+private val updateIV: i:id -> (;i)blockState -> (;i)iv3 -> (;i)blockState
 
 private type (;ki:id,rw:rw)state =
     | BlockCipher of (;ki)blockState
@@ -51,31 +56,62 @@ type (;ki:id)decryptor = (;ki,Reader)state
 // encryptor and decryptor states
 private function val StateID: ki:id * rw:rw * (;ki,rw)state -> int
 
-val GEN:    ki:id -> (e:(;ki)encryptor{StateID(ki,Writer,e)=0}) * (d:(;ki)decryptor{StateID(ki,Reader,d)=0})
+val streamCipher: ki:id -> r:rw -> s:(;ki)streamState -> (;ki,r) state
+val blockCipher: ki:id -> r:rw -> s:(;ki)blockState -> (;ki,r) state
+
+//val GEN:    ki:id -> (e:(;ki)encryptor{StateID(ki,Writer,e)=0}) * (d:(;ki)decryptor{StateID(ki,Reader,d)=0})
+val GEN:    ki:id -> (e:(;ki)encryptor) * (d:(;ki)decryptor)
 val LEAK:   ki:id{not SafeId(ki)} -> rw:rw -> (;ki,rw)state -> key:bytes * iv:bytes
 val COERCE: ki:id{not SafeId(ki)} -> rw:rw -> key:bytes -> iv:bytes -> (;ki,rw)state
 
-(* an abstract predicate recording all encryption results. *)
-predicate val ENCrypted:
-  (e:id * ad:(;e)LHAEPlain.adata * c:cipher * 'a) -> bool // p:(;e,ad,CipherRangeClass(e,Length(c))) plain
+(* an abstract event recording all encryption results. *)
+type event = ENCrypted of
+  e:id * ad:(;e)LHAEPlain.adata * c:cipher * p:(;e,ad,CipherRangeClass(e,Length(c))) plain
+//predicate val ENCrypted:
+//  (e:id * ad:(;e)LHAEPlain.adata * c:cipher * 'a) -> bool // p:(;e,ad,CipherRangeClass(e,Length(c))) plain
 
 val ENC: ki:id -> s:(;ki) encryptor -> ad:(;ki)LHAEPlain.adata -> r:range ->
   p:(;ki,ad,r)plain ->
-  ( (s': (;ki) encryptor{StateID(ki,Writer,s') = StateID(ki,Writer,s)+1}) *
-    (c : cipher{(SafeId(ki) => ENCrypted(ki,ad,c,p)) /\ Length(c)=TargetLength(ki,r)}) )
+  ( (s': (;ki) encryptor
+    ) *
+    (c : cipher {(SafeId(ki) => ENCrypted(ki,ad,c,p)) /\ Length(c)=TargetLength(ki,r)}
+    )
+  )
+
+//ask !ki,ad,c,p,p'. ENCrypted(ki,ad,c,p) /\ ENCrypted(ki,ad,c,p') => p=p'
 
 val DEC: ki:id -> s:(;ki) decryptor -> ad:(;ki)LHAEPlain.adata ->
   c:cipher
-  { (SafeId(ki) => ?p'. ENCrypted(ki,ad,c,p')) /\ Length(c) >= MinTlen(ki) } ->
-  ( (s': (;ki) decryptor{StateID(ki,Reader,s') = StateID(ki,Reader,s)+1}) *
-    (p : (;ki,ad,CipherRangeClass(ki,Length(c)))plain {!p'. ENCrypted(ki,ad,c,p') => p=p'}))
+  { (SafeId(ki) => ?p'. ENCrypted(ki,ad,c,p')) /\ Length(c) >= MinTlen(ki) /\ Length(c) <= max_TLSCipher_fragment_length } ->
+  ( (s': (;ki) decryptor  )  *
+    (p : (;ki,ad,CipherRangeClass(ki,Length(c)))plain  ))
 
 type entry =
-  (ki:id * ad:(;ki)LHAEPlain.adata * c:cipher * p:(;ki,ad,CipherRangeClass(ki,Length(c)))plain)
-  { ENCrypted(ki,ad,c,p) }
+  (ki:id * ad:(;ki)LHAEPlain.adata * rg:range * c:cipher * p:(;ki,ad,rg)plain)
+  { ENCrypted(ki,ad,c,p) /\ Length(c) = TargetLength (ki, rg) }
+
+val addtolog: e:entry -> l:entry list ref -> entry list
 
 val log: entry list ref
-val cfind: e:id -> c:cipher -> xs: entry list ->
-	(ad:(;e)LHAEPlain.adata * rg:range * (;e,ad,rg) Encode.plain)
+
+val cfind: e:id -> ad:(;e)LHAEPlain.adata -> c:cipher -> xs: entry list -> (rg:range * p:(;e,ad,rg) Encode.plain){ENCrypted(e,ad,c,p) /\ Length(c) = TargetLength (e, rg)}
 
 private val lastblock:  alg:blockCipher -> c:cipher {Length(c)>=BlockSize(alg)} -> bytes
+
+// internal function declarations
+//private val GENOne: i:id -> 'a //(;i) state //TODO state should also have a role, but GENOne returns the state for both roles.
+private val cbcenc: blockCipher -> CoreCiphers.key -> CoreCiphers.iv -> bytes -> bytes
+private val cbcdec: blockCipher -> CoreCiphers.key -> CoreCiphers.iv -> bytes -> bytes
+
+val ENC_int: i:id -> s:(;i)encryptor -> tlen:nat{!enc,mac. i.aeAlg = MtE(CBC_Stale(enc),mac) => tlen>=BlockSize(enc)} -> bytes ->
+( (s': (;i) encryptor
+  ) *
+  (c:cipher {Length(c)=tlen}
+  )
+)
+
+//{Length(c) <= max_TLSCipher_fragment_length (*MK doesn't seem to have an effect *)
+//		   /\ (!enc,mac. ki.aeAlg = MtE(CBC_Stale(enc),mac) => Length(c)>=BlockSize(enc) ) }
+private val DEC_int: ki:id -> s:(;ki) decryptor ->
+					 c:cipher {Length(c) >= MinTlen(ki) /\ Length(c) <= max_TLSCipher_fragment_length /\ (!enc,mac. ki.aeAlg = MtE(CBC_Stale(enc),mac) \/ ki.aeAlg = MtE(CBC_Fresh(enc),mac) => Length(c)>=BlockSize(enc)) } ->
+					 (;ki) decryptor * bytes

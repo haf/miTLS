@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2012--2013 MSR-INRIA Joint Center. All rights reserved.
+ * Copyright (c) 2012--2014 MSR-INRIA Joint Center. All rights reserved.
  * 
  * This code is distributed under the terms for the CeCILL-B (version 1)
  * license.
@@ -139,7 +139,7 @@ let isFatal ad =
 
 let send_alert (ci:ConnectionInfo) state alertDesc =
 
-    (* Note: we only support sending one alert in the whole protocol execution
+    (* Note: we only support sending one (fatal) alert in the whole protocol execution
        (because we'll tell dispatch an alert has been sent when the buffer gets empty)
        So we only add an alert on an empty buffer (we don't enqueue more alerts) *)
     if length  state.al_outgoing = 0 then
