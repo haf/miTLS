@@ -89,6 +89,9 @@ let encrypt' (e:id) key data rg plain =
             let plain   = Encode.mac e ka data rg plain in
             let (l,h) = rg in
             if
+#if TLSExt_extendedPadding
+                (not (TLSExtensions.hasExtendedPadding e)) &&
+#endif
                 l <> h then
                 unexpected "[encrypt'] given an invalid input range"
             else
@@ -109,6 +112,9 @@ let encrypt' (e:id) key data rg plain =
     | (AEAD(encAlg,_), GCM(gcmState)) ->
         let (l,h) = rg in
         if
+#if TLSExt_extendedPadding
+            (not (TLSExtensions.hasExtendedPadding e)) &&
+#endif
             l <> h then
             unexpected "[encrypt'] given an invalid input range"
         else

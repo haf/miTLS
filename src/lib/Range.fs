@@ -38,6 +38,11 @@ let ivSize (e:id) =
     | AEAD (_,_) -> Error.unexpected "[ivSize] invoked on wrong ciphersuite"
 
 let fixedPadSize id =
+#if TLSExt_extendedPadding
+    if TLSExtensions.hasExtendedPadding id then
+        2
+    else
+#endif
         let authEnc = id.aeAlg in
         match authEnc with
         | MACOnly _ | AEAD(_,_) -> 0
@@ -47,6 +52,11 @@ let fixedPadSize id =
             | CBC_Stale(_) | CBC_Fresh(_) -> 1
 
 let maxPadSize id =
+#if TLSExt_extendedPadding
+    if TLSExtensions.hasExtendedPadding id then
+        fragmentLength
+    else
+#endif
         let authEnc = id.aeAlg in
         match authEnc with
         | MACOnly _ | AEAD(_,_) -> 0
@@ -69,9 +79,46 @@ let minimalPadding e len =
             let bs = blockSize alg in
             let lp = (len % bs) in
             let p = bs - lp in
+#if TLSExt_extendedPadding
+            let fp = fixedPadSize e in
+            let p =
+                if p < fp then
+                    p + bs
+                else
+                    p in
+#endif
             if p < 0 then
                 Error.unreachable ""
             else p
+
+#if TLSExt_extendedPadding
+let alignedRange e (rg:range) =
+    let (l,h) = rg in
+    let authEnc = e.aeAlg in
+    match authEnc with
+    | MtE(enc,mac) ->
+        (match enc with
+        | Stream_RC4_128 ->
+            let mp = minimalPadding e h in
+            (l,h+mp)
+        | CBC_Stale(_) | CBC_Fresh(_) ->
+        let (l,h) = rg in
+        let macLen = macSize mac in
+        let prePad = h + macLen in
+        let mp = minimalPadding e prePad in
+        (l,h+mp))
+    | MACOnly _ | AEAD(_,_) ->
+        let mp = minimalPadding e h in
+        (l,h+mp)
+
+let extendedPad (id:id) (rg:range) (plen:nat) =
+    let rg = alignedRange id rg in
+    let fp = fixedPadSize id in
+    let (_,h) = rg in
+    let padlen = h - plen - fp in
+    let pad = createBytes padlen 0 in
+    TLSConstants.vlbytes fp pad
+#endif
 
 //@ From plaintext range to ciphertext length
 let targetLength e (rg:range) =

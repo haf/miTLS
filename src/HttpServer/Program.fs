@@ -68,7 +68,6 @@ type options = {
     localaddr : IPEndPoint;
     localname : string;
     remotename: string option;
-    servname  : string;
 }
 
 exception ArgError of string
@@ -83,7 +82,6 @@ let cmdparse = fun () ->
     let defaultCert = "sessionDB"
     let defaultDHDB = "DHDB"
     let defaultName = "mitls.example.org"
-    let defaultServ = "localhost"
 
     let options  = ref {
         rootdir   = Path.Combine(mypath, defaultRoot);
@@ -91,8 +89,7 @@ let cmdparse = fun () ->
         dhdir     = Path.Combine(mypath, defaultDHDB);
         localaddr = IPEndPoint(IPAddress.Loopback, defaultPort);
         localname = defaultName;
-        remotename= None;
-        servname  = defaultServ; }
+        remotename= None; }
 
     let valid_path = fun path ->
         Directory.Exists path
@@ -135,18 +132,14 @@ let cmdparse = fun () ->
     let o_remotename = fun s ->
         options := { !options with remotename = Some(s) }
 
-    let o_servname = fun s ->
-        options := { !options with servname = s }
-
     let specs = [
         "--root-dir"     , ArgType.String o_rootdir   , sprintf "\t\tHTTP root directory (default `pwd`/%s)" defaultRoot
         "--sessionDB-dir", ArgType.String o_certdir   , sprintf "\tsession database directory (default `pwd`/%s)" defaultCert
-        "--dhDB-dir"     , ArgType.String o_dhdir     , sprintf "\tdh database directory (default `pwd` /%s" defaultDHDB
+        "--dhDB-dir"     , ArgType.String o_dhdir     , sprintf "\t\tdh database directory (default `pwd`/%s)" defaultDHDB
         "--bind-port"    , ArgType.Int    o_port      , sprintf "\t\tlocal port (default %d)" defaultPort
         "--bind-address" , ArgType.String o_address   , "\tlocal address (default localhost)"
         "--local-name"   , ArgType.String o_localname , sprintf "\t\tlocal host name (default %s)" defaultName
-        "--remote-name"  , ArgType.String o_remotename, "\tremote client name (if any, default anonymous client)"
-        "--serv-name"    , ArgType.String o_servname  , "\tserver name (for HTTP redirections)"]
+        "--remote-name"  , ArgType.String o_remotename, "\tremote client name (if any, default anonymous client)"]
 
     let specs = specs |> List.map (fun (sh, ty, desc) -> ArgInfo(sh, ty, desc))
 
@@ -170,5 +163,5 @@ let _ =
             mimesmap   = mimesmap         ;
             localaddr  = options.localaddr;
             tlsoptions = Some tlsoptions  ;
-            servname   = options.servname ;
+            servname   = options.localname;
         }

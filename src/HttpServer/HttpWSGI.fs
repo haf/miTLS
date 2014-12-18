@@ -87,9 +87,11 @@ type WsgiHandler () =
                 let sinfo = (stream :?> TLStream.TLStream) in
                 let sinfo = sinfo.GetSessionInfo () in
                 let sinfo =
-                    [ ("cipher"     , Map.find (Utils.unerror (TLSConstants.name_of_cipherSuite sinfo.cipher_suite)) cs_map :> obj);
-                      ("compression", Map.find sinfo.compression cp_map :> obj);
-                      ("version"    , Map.find sinfo.protocol_version vr_map :> obj);
+                    [ ("cipher"      , Map.find (Utils.unerror (TLSConstants.name_of_cipherSuite sinfo.cipher_suite)) cs_map :> obj);
+                      ("compression" , Map.find sinfo.compression cp_map :> obj);
+                      ("version"     , Map.find sinfo.protocol_version vr_map :> obj);
+                      ("session-hash", Bytes.hexString sinfo.session_hash :> obj);
+                      ("session-extensions", Printf.sprintf "%A" sinfo.extensions :> obj);
                     ]
                         |> Map.ofList
                 in

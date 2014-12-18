@@ -45,5 +45,3 @@ val utf8: string -> bytes
 val iutf8: bytes -> string
 
 val hexString: bytes -> string
-
-val todo: string -> unit

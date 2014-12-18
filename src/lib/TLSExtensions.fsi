@@ -39,15 +39,13 @@ val serverExtensionsBytes: list<serverExtension> -> bytes
 val checkClientRenegotiationInfoExtension: config -> list<clientExtension> -> cVerifyData -> bool
 val checkServerRenegotiationInfoExtension: config -> list<serverExtension> -> cVerifyData -> sVerifyData -> bool
 
+#if TLSExt_sessionHash
 val hasExtendedMS: negotiatedExtensions -> bool
-val hasExtendedPadding: id -> bool
+#endif
 
-// type extensionType
-//
-// val extensionsBytes: bool -> bytes -> bytes
-// val parseExtensions: bytes -> Result<list<(extensionType * bytes)>>
-// val inspect_ServerHello_extensions: list<(extensionType * bytes)> -> bytes -> Result<unit>
-// val checkClientRenegotiationInfoExtension: list<(extensionType * bytes)> -> TLSConstants.cipherSuites -> bytes -> bool
+#if TLSExt_extendedPadding
+val hasExtendedPadding: id -> bool
+#endif
 
 val sigHashAlgBytes: Sig.alg -> bytes
 val parseSigHashAlg: bytes -> Result<Sig.alg>

@@ -152,16 +152,16 @@ let parse_cmd () =
 
     let specs =
         let specs = [
-            "--sessionDB-dir", ArgType.String o_certdir    , sprintf "\tsession database directory (default `pwd`/%s)" defaultDB
-            "--dhDB-dir"     , ArgType.String o_dhdir      , sprintf "\tdh database directory (default `pwd` /%s)" defaultDH
-            "--port"         , ArgType.Int    o_port       , sprintf "\t\tserver port (default %d)" defaultPort
-            "--address"      , ArgType.String o_address    , "\tserver address (default localhost)"
-            "--ciphers"      , ArgType.String o_ciphers    , sprintf "\t\t,-separated ciphers list (default %s)" (String.Join(",", defaultCS))
-            "--tlsversion"   , ArgType.String o_version    , sprintf "\t\tTLS version to use -- strict (default any supported version)"
-            "--client-name"  , ArgType.String o_client_name, "\tTLS client name (default None, anonymous client)"
+            "--sessionDB-dir", ArgType.String o_certdir    , sprintf "\tsession database directory (default: `pwd`/%s)" defaultDB
+            "--dhDB-dir"     , ArgType.String o_dhdir      , sprintf "\t\tdh database directory (default: `pwd`/%s)" defaultDH
+            "--port"         , ArgType.Int    o_port       , sprintf "\t\t\tserver port (default: %d)" defaultPort
+            "--address"      , ArgType.String o_address    , "\t\tserver address (default: localhost)"
+            "--ciphers"      , ArgType.String o_ciphers    , sprintf "\t\t,-separated ciphers list (default: %s)" (String.Join(",", List.map (sprintf "%A") defaultCS))
+            "--tlsversion"   , ArgType.String o_version    , sprintf "\t\tTLS version to use -- strict (default: any supported version)"
+            "--client-name"  , ArgType.String o_client_name, "\tTLS client name (default: None, anonymous client)"
             "--server-name"  , ArgType.String o_server_name, (sprintf "\tTLS server name (default: %s)" defaultSN)
-            "--list"         , ArgType.Unit   o_list       , "\t\t\tPrint supported version/ciphers and exit"
-            "--client"       , ArgType.Set    isclient     , "\t\tAsk as a client instead of a server" ]
+            "--list"         , ArgType.Unit   o_list       , "\t\t\tPrint supported versions/ciphers and exit"
+            "--client"       , ArgType.Set    isclient     , "\t\t\tAct as a client instead of a server" ]
         in
             specs |> List.map (fun (sh, ty, desc) -> ArgInfo(sh, ty, desc))
 

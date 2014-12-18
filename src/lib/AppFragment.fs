@@ -72,9 +72,33 @@ let repr (i:id) r f =
   DataStream.deltaRepr e' s r d
 
 let makeExtPad (i:id) (r:range) (f:fragment) =
+#if TLSExt_extendedPadding
+    if TLSExtensions.hasExtendedPadding i then
+        let (e',s,d) = f.frag in
+
+        let b = DataStream.deltaBytes e' s r d in
+        let len = length b in
+        let pad = extendedPad i r len in
+        let padded = pad@|b in
+        let d = DataStream.createDelta e' s r padded in
+        {frag = (e',s,d)}
+    else
+#endif
         f
 
 let parseExtPad (i:id) (r:range) (f:fragment) : Result<fragment> =
+#if TLSExt_extendedPadding
+    if TLSExtensions.hasExtendedPadding i then
+        let (e',s,d) = f.frag in
+        let b = DataStream.deltaBytes e' s r d in
+        match TLSConstants.vlsplit 2 b with
+        | Error(x) -> Error(x)
+        | Correct(res) ->
+            let (_,b) = res in
+            let d = DataStream.createDelta e' s r b in
+            correct ({frag = (e',s,d)})
+    else
+#endif
         correct f
 
 #if ideal

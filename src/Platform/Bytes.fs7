@@ -100,7 +100,3 @@ val iutf8: b:bytes -> s:string { b = Utf8(s) }
 assume !x:string, y:string. ( Utf8(x)=Utf8(y) => x = y )
 
 val hexString: b:bytes -> s:string
-
-(* for logical debugging only *)
-
-val todo: string -> unit { false }

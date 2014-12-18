@@ -125,6 +125,9 @@ let encodeNoPad (e:id) (tlen:nat) (rg:range) (ad:LHAEPlain.adata) data tag =
     let b = payload e rg ad data in
     let (_,h) = rg in
     if
+#if TLSExt_extendedPadding
+        (not (TLSExtensions.hasExtendedPadding e)) &&
+#endif
         h <> length b then
         Error.unexpected "[encodeNoPad] invoked on an invalid range."
     else
@@ -247,6 +250,11 @@ let plain (e:id) ad tlen b =
         decodeNoPad e ad rg tlen b
     | MtE(CBC_Stale(_),_)
     | MtE(CBC_Fresh(_),_) ->
+#if TLSExt_extendedPadding
+        if TLSExtensions.hasExtendedPadding e then
+            decodeNoPad e ad rg tlen b
+        else
+#endif
             decode e ad rg tlen b
     | _ -> unexpected "[Encode.plain] incompatible ciphersuite given."
 
@@ -261,6 +269,11 @@ let repr (e:id) ad rg pl =
         encodeNoPad e tlen rg ad lp tg
     | MtE(CBC_Stale(_),_)
     | MtE(CBC_Fresh(_),_) ->
+#if TLSExt_extendedPadding
+        if TLSExtensions.hasExtendedPadding e then
+            encodeNoPad e tlen rg ad lp tg
+        else
+#endif
             encode e tlen rg ad lp tg
     | _ -> unexpected "[Encode.repr] incompatible ciphersuite given."
 

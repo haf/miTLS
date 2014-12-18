@@ -89,16 +89,20 @@ let parseClientExtension head payload =
             let res = CE_renegotiation_info (cvd) in
             let res = correct res in
             Some(res))
+#if TLSExt_sessionHash
     | (0x00uy, 0x17uy) -> // extended_ms
         if equalBytes payload empty_bytes then
             Some(correct (CE_extended_ms))
         else
             Some(Error(AD_illegal_parameter, perror __SOURCE_FILE__ __LINE__ "Invalid data for extended master secret extension"))
+#endif
+#if TLSExt_extendedPadding
     | (0xBBuy, 0x8Fuy) -> // extended_padding
         if equalBytes payload empty_bytes then
             Some(correct (CE_extended_padding))
         else
             Some(Error(AD_illegal_parameter, perror __SOURCE_FILE__ __LINE__ "Invalid data for extended padding extension"))
+#endif
     | (_,_) -> None
 
 let addOnceClient ext extList =
@@ -152,7 +156,14 @@ let parseClientExtensions data ch_ciphers =
 
 let prepareClientExtensions (cfg:config) (conn:ConnectionInfo) renegoCVD =
     (* Always send supported extensions. The configuration options will influence how strict the tests will be *)
-    [CE_renegotiation_info(renegoCVD); CE_extended_ms; CE_extended_padding]
+    let res = [CE_renegotiation_info(renegoCVD)] in
+#if TLSExt_sessionHash
+    let res = CE_extended_ms :: res in
+#endif
+#if TLSExt_extendedPadding
+    let res = CE_extended_padding :: res in
+#endif
+    res
 
 let serverToNegotiatedExtension cExtL (resuming:bool) cs res sExt : Result<negotiatedExtensions>=
     match res with

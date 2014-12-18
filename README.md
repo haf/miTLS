@@ -48,6 +48,9 @@ The following make targets are available:
 - build (default)
     compiles source code and puts executables in then bin directory
 
+- build-debug
+	compiles source code in debug mode
+
 - dist
     prepares a compressed archive that can be distributed
 

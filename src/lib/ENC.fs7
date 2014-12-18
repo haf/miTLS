@@ -99,7 +99,8 @@ val cfind: e:id -> ad:(;e)LHAEPlain.adata -> c:cipher -> xs: entry list -> (rg:r
 private val lastblock:  alg:blockCipher -> c:cipher {Length(c)>=BlockSize(alg)} -> bytes
 
 // internal function declarations
-//private val GENOne: i:id -> 'a //(;i) state //TODO state should also have a role, but GENOne returns the state for both roles.
+
+//private val GENOne: i:id -> 'a //(;i) state
 private val cbcenc: blockCipher -> CoreCiphers.key -> CoreCiphers.iv -> bytes -> bytes
 private val cbcdec: blockCipher -> CoreCiphers.key -> CoreCiphers.iv -> bytes -> bytes
 
