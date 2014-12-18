@@ -29,14 +29,14 @@ TLS is possibly the most used secure communications protocol, with a 18-year
 history of flaws and fixes, ranging from its protocol logic to its cryptographic
 design, and from the Internet standard to its diverse implementations.
 
-
 This is a pre-release of miTLS, a verified reference implementation of
 the TLS security protocol.
 
 ## 1. Compilation
 
-To compile, usually running "make" from the top level directory is
-enough. (See below for prerequisites.)
+To set assembly versions, restore nugets, pack the project as a nuget, etc, you
+can just run 'bundle exec rake' like normal. You can also compile with a
+Makefile, by `cd src/ && make`. (See below for prerequisites.)
 
 The produces executables are placed in the `bin' directory.
 
